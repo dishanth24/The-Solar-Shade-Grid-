@@ -4,6 +4,7 @@ import React, { useState } from "react";
 import { TopBar } from "@/components/TopBar";
 import { Sidebar } from "@/components/Sidebar";
 import { MarketMap } from "@/components/MarketMap";
+import { PowerChart } from "@/components/PowerChart";
 import { Tabs, TabsList, TabsTrigger, TabsContent } from "@/components/ui/tabs";
 import { useSim } from "@/lib/sim-context";
 import { AnimatedNumber } from "@/components/AnimatedNumber";
@@ -89,9 +90,9 @@ export default function Home() {
                     <MarketMap />
                   </div>
 
-                  {/* Centre Bottom: PowerChart Placeholder (flex-[2]) */}
-                  <div className="flex-[2] min-h-0 rounded-xl border border-border bg-card p-3 flex flex-col justify-between shadow-xs transition-colors duration-700">
-                    <div className="flex items-center justify-between">
+                  {/* Centre Bottom: PowerChart */}
+                  <div className="flex-1 min-h-0 rounded-xl border border-border bg-card p-3 flex flex-col justify-between shadow-xs transition-colors duration-700">
+                    <div className="flex items-center justify-between shrink-0">
                       <div className="flex items-center gap-2">
                         <TrendingUp className="w-4 h-4 text-teal dark:text-amber" />
                         <h2 className="font-serif text-sm font-bold text-foreground">
@@ -113,13 +114,11 @@ export default function Home() {
                       </div>
                     </div>
 
-                    <div className="flex-1 flex items-center justify-center border border-dashed border-border/80 rounded-lg bg-background/50 my-1 text-center">
-                      <p className="text-xs text-muted-foreground font-mono">
-                        Recharts AreaChart Placeholder (P4)
-                      </p>
+                    <div className="flex-1 min-h-0 w-full my-1">
+                      <PowerChart />
                     </div>
 
-                    <div className="flex items-center justify-between text-[10px] font-mono text-muted-foreground">
+                    <div className="flex items-center justify-between text-[10px] font-mono text-muted-foreground shrink-0">
                       <span>06:00 Sunrise</span>
                       <span>12:00 Peak Sun</span>
                       <span>18:00 Sunset</span>
