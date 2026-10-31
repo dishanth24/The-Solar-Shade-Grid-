@@ -7,6 +7,7 @@ import {
   ZapOff,
   Bell,
   Play,
+  Square,
   Pause,
   RotateCcw,
   Sparkles,
@@ -31,8 +32,8 @@ export function Sidebar(props: SidebarProps) {
 
   const currentMode = props.currentMode ?? sim.mode;
   const speed = props.speed ?? sim.speed;
-  const storyProgress = props.storyProgress ?? 0;
-  const isPlayingStory = props.isPlayingStory ?? false;
+  const storyProgress = props.storyProgress ?? sim.story.progress;
+  const isPlayingStory = props.isPlayingStory ?? sim.story.isPlaying;
 
   const handleNormal = () => {
     if (props.onModeSelect) {
@@ -76,6 +77,26 @@ export function Sidebar(props: SidebarProps) {
       props.onReset();
     } else {
       sim.reset();
+    }
+  };
+
+  const handleDispatchAlert = () => {
+    if (props.onDispatchAlert) {
+      props.onDispatchAlert();
+    } else {
+      sim.dispatchAlert();
+    }
+  };
+
+  const handleToggleStory = () => {
+    if (props.onToggleStory) {
+      props.onToggleStory();
+    } else {
+      if (isPlayingStory) {
+        sim.story.stop();
+      } else {
+        sim.story.start();
+      }
     }
   };
 
@@ -141,7 +162,7 @@ export function Sidebar(props: SidebarProps) {
           <Button
             variant="outline"
             className="w-full justify-start gap-2 h-9 text-xs font-semibold border-blue/40 text-blue hover:bg-blue/10 dark:text-blue dark:border-blue/50"
-            onClick={() => props.onDispatchAlert?.()}
+            onClick={handleDispatchAlert}
           >
             <Bell className="w-3.5 h-3.5 text-blue" />
             <span>Dispatch SMS Alert</span>
@@ -223,23 +244,24 @@ export function Sidebar(props: SidebarProps) {
           </span>
         </div>
 
-        {/* Big Play 3-minute story button */}
-        <Button
-          onClick={() => props.onToggleStory?.()}
-          className="w-full h-11 bg-amber text-ink hover:bg-amber/90 font-bold text-xs tracking-wide shadow-sm flex items-center justify-center gap-2 rounded-xl transition-transform active:scale-[0.98]"
-        >
-          {isPlayingStory ? (
-            <>
-              <Pause className="w-4 h-4 fill-current" />
-              <span>Pause Story</span>
-            </>
-          ) : (
-            <>
-              <Play className="w-4 h-4 fill-current" />
-              <span>Play 3-Minute Story</span>
-            </>
-          )}
-        </Button>
+        {/* Big Play/Stop 3-minute story button */}
+        {isPlayingStory ? (
+          <Button
+            onClick={handleToggleStory}
+            className="w-full h-11 bg-red text-white hover:bg-red/90 font-bold text-xs tracking-wide shadow-sm flex items-center justify-center gap-2 rounded-xl transition-transform active:scale-[0.98]"
+          >
+            <Square className="w-4 h-4 fill-current" />
+            <span>Stop Story</span>
+          </Button>
+        ) : (
+          <Button
+            onClick={handleToggleStory}
+            className="w-full h-11 bg-amber text-ink hover:bg-amber/90 font-bold text-xs tracking-wide shadow-sm flex items-center justify-center gap-2 rounded-xl transition-transform active:scale-[0.98]"
+          >
+            <Play className="w-4 h-4 fill-current" />
+            <span>Play 3-Minute Story</span>
+          </Button>
+        )}
 
         {/* Progress Bar */}
         <div className="flex flex-col gap-1">
