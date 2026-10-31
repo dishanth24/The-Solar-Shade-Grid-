@@ -3,17 +3,17 @@
 import React, { useState } from "react";
 import { TopBar } from "@/components/TopBar";
 import { Sidebar } from "@/components/Sidebar";
+import { MarketMap } from "@/components/MarketMap";
 import { Tabs, TabsList, TabsTrigger, TabsContent } from "@/components/ui/tabs";
 import { useSim } from "@/lib/sim-context";
 import { AnimatedNumber } from "@/components/AnimatedNumber";
 import {
-  SunMedium,
   Activity,
-  Zap,
   Terminal,
   Layers,
   Calculator,
   ShieldCheck,
+  SunMedium,
   TrendingUp,
 } from "lucide-react";
 
@@ -84,41 +84,9 @@ export default function Home() {
               <div className="flex-1 flex gap-2 min-h-0 overflow-hidden">
                 {/* Centre Column: Top (MarketMap) + Bottom (PowerChart) */}
                 <div className="flex-1 flex flex-col gap-2 min-w-0 min-h-0">
-                  {/* Centre Top: MarketMap SVG Placeholder (flex-[3]) */}
-                  <div className="flex-[3] min-h-0 rounded-xl border border-border bg-card p-3 flex flex-col justify-between shadow-xs transition-colors duration-700">
-                    <div className="flex items-center justify-between">
-                      <div className="flex items-center gap-2">
-                        <SunMedium className="w-4 h-4 text-amber" />
-                        <h2 className="font-serif text-sm font-bold text-foreground">
-                          MarketMap Digital Twin
-                        </h2>
-                        <span className="text-[10px] font-mono text-muted-foreground">
-                          viewBox 960 × 420
-                        </span>
-                      </div>
-                      <span className="text-[10px] font-medium px-2 py-0.5 rounded bg-secondary text-muted-foreground">
-                        Interactive SVG Canvas (P3)
-                      </span>
-                    </div>
-
-                    <div className="flex-1 flex flex-col items-center justify-center border border-dashed border-border/80 rounded-lg bg-background/50 my-2 p-4 text-center">
-                      <div className="w-12 h-12 rounded-full bg-secondary/80 flex items-center justify-center mb-2 text-teal dark:text-amber">
-                        <Zap className="w-6 h-6 text-amber" />
-                      </div>
-                      <p className="text-xs font-semibold text-foreground">
-                        Canopy • Stalls • DC Bus • Cold Storage Hub • Grid Pylon
-                      </p>
-                      <p className="text-[11px] text-muted-foreground max-w-sm mt-1">
-                        Sun arc progression, solar misting droplets, live DC power dash flow,
-                        and vendor micro-grid state will render here.
-                      </p>
-                    </div>
-
-                    <div className="flex items-center justify-between text-[11px] text-muted-foreground font-mono">
-                      <span>12 kW PV Canopy</span>
-                      <span>20 kWh LiFePO4 Hub</span>
-                      <span>8 Market Stalls</span>
-                    </div>
+                  {/* Centre Top: MarketMap SVG (P3) */}
+                  <div className="flex-[3] min-h-0 rounded-xl border border-border bg-card overflow-hidden shadow-xs transition-colors duration-700">
+                    <MarketMap />
                   </div>
 
                   {/* Centre Bottom: PowerChart Placeholder (flex-[2]) */}
