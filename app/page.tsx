@@ -1,69 +1,420 @@
-import Image from "next/image";
+"use client";
+
+import React, { useState } from "react";
+import { TopBar } from "@/components/TopBar";
+import { Sidebar } from "@/components/Sidebar";
+import { Tabs, TabsList, TabsTrigger, TabsContent } from "@/components/ui/tabs";
+import {
+  SunMedium,
+  Activity,
+  Zap,
+  Terminal,
+  Layers,
+  Calculator,
+  ShieldCheck,
+  CheckCircle2,
+  TrendingUp,
+} from "lucide-react";
+
+const PLACEHOLDER_STALLS = [
+  { id: "s1", name: "Vegetables", temp: 30, loadKw: 0.18, status: "ok", wallet: 0 },
+  { id: "s2", name: "Fruits", temp: 30, loadKw: 0.18, status: "ok", wallet: 0 },
+  { id: "s3", name: "Flowers", temp: 30, loadKw: 0.18, status: "ok", wallet: 0 },
+  { id: "s4", name: "Dairy", temp: 30, loadKw: 0.18, status: "ok", wallet: 0 },
+  { id: "s5", name: "Spices", temp: 30, loadKw: 0.18, status: "ok", wallet: 0 },
+  { id: "s6", name: "Snacks", temp: 30, loadKw: 0.18, status: "ok", wallet: 0 },
+  { id: "s7", name: "Tea", temp: 30, loadKw: 0.18, status: "ok", wallet: 0 },
+  { id: "s8", name: "Grains", temp: 30, loadKw: 0.18, status: "ok", wallet: 0 },
+];
 
 export default function Home() {
+  const [activeTab, setActiveTab] = useState("dashboard");
+  const [currentMode, setCurrentMode] = useState<"normal" | "heatwave" | "blackout">("normal");
+  const [simSpeed, setSimSpeed] = useState(1);
+
   return (
-    <div className="flex flex-col flex-1 items-center justify-center bg-zinc-50 font-sans dark:bg-black">
-      <main className="flex flex-1 w-full max-w-3xl flex-col items-center justify-between py-32 px-16 bg-white dark:bg-black sm:items-start">
-        <Image
-          className="dark:invert h-5 w-[100px]"
-          src="/next.svg"
-          alt="Next.js logo"
-          width={100}
-          height={20}
-          priority
+    <div className="h-screen w-screen overflow-hidden flex flex-col bg-background text-foreground transition-colors duration-700">
+      {/* Top Bar (64 px) */}
+      <TopBar
+        clock="09:00"
+        isDay={true}
+        gridLive={currentMode !== "blackout"}
+        batterySoc={0.7}
+        coopPool={0}
+        runtime={currentMode === "blackout" ? "3h 34m" : null}
+      />
+
+      {/* Main Body: Left Sidebar (260 px) + Content Area */}
+      <div className="flex-1 flex overflow-hidden min-h-0">
+        <Sidebar
+          currentMode={currentMode}
+          speed={simSpeed}
+          storyProgress={0}
+          isPlayingStory={false}
+          onModeSelect={(mode) => setCurrentMode(mode)}
+          onDispatchAlert={() => alert("Dispatch Alert triggered (Twilio preview modal in P6)")}
+          onSpeedChange={(speed) => setSimSpeed(speed)}
+          onReset={() => {
+            setCurrentMode("normal");
+            setSimSpeed(1);
+          }}
+          onToggleStory={() => alert("Story mode will start in P5")}
         />
-        <div className="flex flex-col items-center gap-6 text-center sm:items-start sm:text-left">
-          <h1 className="max-w-xs text-3xl font-semibold leading-10 tracking-tight text-black dark:text-zinc-50">
-            To get started, edit the{" "}
-            <code className="rounded bg-black/[.06] px-1.5 py-0.5 font-mono text-[0.9em] dark:bg-white/[.08]">
-              page.tsx
-            </code>{" "}
-            file.
-          </h1>
-          <p className="max-w-md text-lg leading-8 text-zinc-600 dark:text-zinc-400">
-            Looking for a starting point or more instructions? Head over to{" "}
-            <a
-              href="https://vercel.com/templates?framework=next.js&utm_source=create-next-app&utm_medium=appdir-template-tw&utm_campaign=create-next-app"
-              className="font-medium text-zinc-950 dark:text-zinc-50"
-            >
-              Templates
-            </a>{" "}
-            or the{" "}
-            <a
-              href="https://nextjs.org/learn?utm_source=create-next-app&utm_medium=appdir-template-tw&utm_campaign=create-next-app"
-              className="font-medium text-zinc-950 dark:text-zinc-50"
-            >
-              Learning
-            </a>{" "}
-            center.
-          </p>
-        </div>
-        <div className="flex flex-col gap-4 text-base font-medium sm:flex-row">
-          <a
-            className="flex h-12 w-full items-center justify-center gap-2 rounded-full bg-foreground px-5 text-background transition-colors hover:bg-[#383838] dark:hover:bg-[#ccc] md:w-[158px]"
-            href="https://vercel.com/new?utm_source=create-next-app&utm_medium=appdir-template-tw&utm_campaign=create-next-app"
-            target="_blank"
-            rel="noopener noreferrer"
+
+        {/* Tabbed Content Area */}
+        <main className="flex-1 flex flex-col p-2.5 overflow-hidden min-w-0 min-h-0">
+          <Tabs
+            value={activeTab}
+            onValueChange={setActiveTab}
+            className="h-full flex flex-col min-h-0 overflow-hidden"
           >
-            <Image
-              className="dark:invert h-[14px] w-4"
-              src="/vercel.svg"
-              alt="Vercel logomark"
-              width={16}
-              height={14}
-            />
-            Deploy Now
-          </a>
-          <a
-            className="flex h-12 w-full items-center justify-center rounded-full border border-solid border-black/[.08] px-5 transition-colors hover:border-transparent hover:bg-black/[.04] dark:border-white/[.145] dark:hover:bg-[#1a1a1a] md:w-[158px]"
-            href="https://nextjs.org/docs?utm_source=create-next-app&utm_medium=appdir-template-tw&utm_campaign=create-next-app"
-            target="_blank"
-            rel="noopener noreferrer"
-          >
-            Documentation
-          </a>
-        </div>
-      </main>
+            {/* Tabs Row */}
+            <div className="shrink-0 flex items-center justify-between pb-1.5">
+              <TabsList className="bg-secondary/70 p-0.5 h-8">
+                <TabsTrigger
+                  value="dashboard"
+                  className="text-xs font-semibold px-3 py-1 data-active:bg-card data-active:shadow-xs"
+                >
+                  <Activity className="w-3.5 h-3.5 mr-1.5 text-teal dark:text-amber" />
+                  Dashboard
+                </TabsTrigger>
+                <TabsTrigger
+                  value="install"
+                  className="text-xs font-semibold px-3 py-1 data-active:bg-card data-active:shadow-xs"
+                >
+                  <Layers className="w-3.5 h-3.5 mr-1.5 text-teal dark:text-amber" />
+                  How it&apos;s installed
+                </TabsTrigger>
+                <TabsTrigger
+                  value="math"
+                  className="text-xs font-semibold px-3 py-1 data-active:bg-card data-active:shadow-xs"
+                >
+                  <Calculator className="w-3.5 h-3.5 mr-1.5 text-teal dark:text-amber" />
+                  Live Math
+                </TabsTrigger>
+              </TabsList>
+
+              <div className="text-[11px] font-mono text-muted-foreground flex items-center gap-2">
+                <span className="w-2 h-2 rounded-full bg-green inline-block"></span>
+                <span>Twin Engine Ready</span>
+              </div>
+            </div>
+
+            {/* TAB 1: DASHBOARD */}
+            <TabsContent
+              value="dashboard"
+              className="flex-1 flex flex-col gap-2 min-h-0 overflow-hidden mt-0 data-[state=inactive]:hidden"
+            >
+              {/* Upper Section: Centre Column + Right Column */}
+              <div className="flex-1 flex gap-2 min-h-0 overflow-hidden">
+                {/* Centre Column: Top (MarketMap) + Bottom (PowerChart) */}
+                <div className="flex-1 flex flex-col gap-2 min-w-0 min-h-0">
+                  {/* Centre Top: MarketMap SVG Placeholder (flex-[3]) */}
+                  <div className="flex-[3] min-h-0 rounded-xl border border-border bg-card p-3 flex flex-col justify-between shadow-xs transition-colors duration-700">
+                    <div className="flex items-center justify-between">
+                      <div className="flex items-center gap-2">
+                        <SunMedium className="w-4 h-4 text-amber" />
+                        <h2 className="font-serif text-sm font-bold text-foreground">
+                          MarketMap Digital Twin
+                        </h2>
+                        <span className="text-[10px] font-mono text-muted-foreground">
+                          viewBox 960 × 420
+                        </span>
+                      </div>
+                      <span className="text-[10px] font-medium px-2 py-0.5 rounded bg-secondary text-muted-foreground">
+                        Interactive SVG Canvas (P3)
+                      </span>
+                    </div>
+
+                    <div className="flex-1 flex flex-col items-center justify-center border border-dashed border-border/80 rounded-lg bg-background/50 my-2 p-4 text-center">
+                      <div className="w-12 h-12 rounded-full bg-secondary/80 flex items-center justify-center mb-2 text-teal dark:text-amber">
+                        <Zap className="w-6 h-6 text-amber" />
+                      </div>
+                      <p className="text-xs font-semibold text-foreground">
+                        Canopy • Stalls • DC Bus • Cold Storage Hub • Grid Pylon
+                      </p>
+                      <p className="text-[11px] text-muted-foreground max-w-sm mt-1">
+                        Sun arc progression, solar misting droplets, live DC power dash flow,
+                        and vendor micro-grid state will render here.
+                      </p>
+                    </div>
+
+                    <div className="flex items-center justify-between text-[11px] text-muted-foreground font-mono">
+                      <span>12 kW PV Canopy</span>
+                      <span>20 kWh LiFePO4 Hub</span>
+                      <span>8 Market Stalls</span>
+                    </div>
+                  </div>
+
+                  {/* Centre Bottom: PowerChart Placeholder (flex-[2]) */}
+                  <div className="flex-[2] min-h-0 rounded-xl border border-border bg-card p-3 flex flex-col justify-between shadow-xs transition-colors duration-700">
+                    <div className="flex items-center justify-between">
+                      <div className="flex items-center gap-2">
+                        <TrendingUp className="w-4 h-4 text-teal dark:text-amber" />
+                        <h2 className="font-serif text-sm font-bold text-foreground">
+                          Power Flow: Generation vs Demand
+                        </h2>
+                        <span className="text-[10px] font-mono text-muted-foreground">
+                          Last 48 Ticks
+                        </span>
+                      </div>
+                      <div className="flex items-center gap-3 text-[11px] font-medium">
+                        <span className="flex items-center gap-1.5 text-foreground">
+                          <span className="w-2.5 h-2.5 rounded-full bg-amber inline-block"></span>
+                          Solar Gen (kW)
+                        </span>
+                        <span className="flex items-center gap-1.5 text-foreground">
+                          <span className="w-2.5 h-2.5 rounded-full bg-teal inline-block"></span>
+                          Total Demand (kW)
+                        </span>
+                      </div>
+                    </div>
+
+                    <div className="flex-1 flex items-center justify-center border border-dashed border-border/80 rounded-lg bg-background/50 my-1 text-center">
+                      <p className="text-xs text-muted-foreground font-mono">
+                        Recharts AreaChart Placeholder (P4)
+                      </p>
+                    </div>
+
+                    <div className="flex items-center justify-between text-[10px] font-mono text-muted-foreground">
+                      <span>06:00 Sunrise</span>
+                      <span>12:00 Peak Sun</span>
+                      <span>18:00 Sunset</span>
+                    </div>
+                  </div>
+                </div>
+
+                {/* Right Column (340 px): Live Ledger Header + 8 Stall Cards (2x4 Grid) */}
+                <div className="w-[340px] shrink-0 flex flex-col gap-1.5 min-h-0">
+                  {/* Live Ledger Header */}
+                  <div className="h-9 shrink-0 px-3 rounded-lg border border-border bg-card flex items-center justify-between shadow-xs transition-colors duration-700">
+                    <div className="flex items-center gap-2">
+                      <ShieldCheck className="w-4 h-4 text-green" />
+                      <h2 className="font-serif text-xs font-bold text-foreground tracking-tight">
+                        Live Ledger
+                      </h2>
+                    </div>
+                    <div className="flex items-center gap-2">
+                      <div className="flex items-center gap-1.5 text-[10px] font-semibold text-green">
+                        <span className="relative flex h-1.5 w-1.5">
+                          <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-green opacity-75"></span>
+                          <span className="relative inline-flex rounded-full h-1.5 w-1.5 bg-green"></span>
+                        </span>
+                        <span>synced</span>
+                      </div>
+                      <span className="text-[10px] font-mono font-bold px-1.5 py-0.5 rounded bg-secondary text-foreground">
+                        Pool: ₹0
+                      </span>
+                    </div>
+                  </div>
+
+                  {/* 8 Stall Cards in 2x4 Grid */}
+                  <div className="flex-1 grid grid-cols-2 grid-rows-4 gap-1.5 min-h-0">
+                    {PLACEHOLDER_STALLS.map((stall) => (
+                      <div
+                        key={stall.id}
+                        className="rounded-lg border border-border bg-card p-2 flex flex-col justify-between shadow-xs hover:border-teal/40 transition-all min-h-0"
+                      >
+                        <div className="flex items-center justify-between leading-none">
+                          <span className="text-xs font-bold text-foreground truncate">
+                            {stall.name}
+                          </span>
+                          <span className="text-[9px] font-bold px-1.5 py-0.5 rounded-full bg-green/10 text-green border border-green/30 uppercase">
+                            {stall.status}
+                          </span>
+                        </div>
+                        <div className="grid grid-cols-2 gap-1 text-[11px] font-mono leading-tight my-0.5">
+                          <div>
+                            <span className="text-[9px] text-muted-foreground block">Temp</span>
+                            <span className="font-semibold text-foreground">{stall.temp}°C</span>
+                          </div>
+                          <div>
+                            <span className="text-[9px] text-muted-foreground block">Load</span>
+                            <span className="font-semibold text-foreground">{stall.loadKw} kW</span>
+                          </div>
+                        </div>
+                        <div className="flex items-center justify-between text-[10px] border-t border-border/60 pt-0.5">
+                          <span className="text-muted-foreground text-[9px]">Wallet</span>
+                          <span className="font-mono font-bold text-teal dark:text-amber">
+                            ₹{stall.wallet}
+                          </span>
+                        </div>
+                      </div>
+                    ))}
+                  </div>
+                </div>
+              </div>
+
+              {/* Lower Section: Bottom Strip (150 px) Log Terminal */}
+              <div className="h-[150px] shrink-0 rounded-xl border border-border bg-[#0B1719] text-[#93B8BC] p-2.5 flex flex-col justify-between shadow-xs overflow-hidden font-mono">
+                <div className="flex items-center justify-between border-b border-[#1A3035] pb-1.5 mb-1 text-[11px]">
+                  <div className="flex items-center gap-2">
+                    <Terminal className="w-3.5 h-3.5 text-amber" />
+                    <span className="font-bold text-paper tracking-wider">
+                      CO-OP TWIN TERMINAL LOGS
+                    </span>
+                    <span className="text-[10px] px-1.5 py-0.2 rounded bg-[#173B41] text-amber border border-amber/30">
+                      [AI] + [RULE]
+                    </span>
+                  </div>
+                  <span className="text-[10px] text-muted-foreground">
+                    Auto-scrolling • 12 ms typewriter effect
+                  </span>
+                </div>
+
+                <div className="flex-1 overflow-y-auto space-y-1 text-xs pr-1">
+                  <div className="flex items-start gap-2">
+                    <span className="text-green font-bold shrink-0">[RULE]</span>
+                    <span className="text-muted-foreground shrink-0">09:00</span>
+                    <span className="text-paper">
+                      Grid live. Canopy generating 8.4 kW. Cold storage base active at 1.2 kW.
+                    </span>
+                  </div>
+                  <div className="flex items-start gap-2">
+                    <span className="text-amber font-bold shrink-0">[AI]</span>
+                    <span className="text-muted-foreground shrink-0">09:00</span>
+                    <span className="text-[#D1E6E8]">
+                      Normal morning balance: canopy covers 100% vendor load and charges battery
+                      reserve.
+                    </span>
+                  </div>
+                  <div className="flex items-start gap-2 text-muted-foreground">
+                    <span className="text-blue font-bold shrink-0">[RULE]</span>
+                    <span className="shrink-0">09:15</span>
+                    <span>
+                      Vendor tariffs synchronized across 8 stalls. Virtual credits ledger ready.
+                    </span>
+                  </div>
+                </div>
+
+                <div className="pt-1 border-t border-[#1A3035] flex items-center justify-between text-[10px] text-muted-foreground">
+                  <span>Gemini Assistant + Deterministic Fallback Active</span>
+                  <span className="flex items-center gap-1">
+                    <span className="w-1.5 h-1.5 rounded-full bg-green animate-pulse"></span>
+                    Terminal Listening
+                  </span>
+                </div>
+              </div>
+            </TabsContent>
+
+            {/* TAB 2: HOW IT'S INSTALLED */}
+            <TabsContent
+              value="install"
+              className="flex-1 rounded-xl border border-border bg-card p-6 shadow-xs min-h-0 overflow-y-auto data-[state=inactive]:hidden"
+            >
+              <div className="max-w-3xl mx-auto flex flex-col gap-6">
+                <div>
+                  <h2 className="font-serif text-2xl font-bold text-foreground">
+                    How The Solar Shade Grid Is Installed
+                  </h2>
+                  <p className="text-sm text-muted-foreground mt-1">
+                    Five-step rapid deployment over existing market alleyways with zero ground disruption.
+                  </p>
+                </div>
+
+                <div className="grid grid-cols-1 md:grid-cols-5 gap-3">
+                  {[
+                    { step: "1", title: "Frame Anchor", desc: "Modular lightweight steel canopy frame clamped to market stanchions" },
+                    { step: "2", title: "Solar Canopy", desc: "12 kW bifacial solar panels creating continuous cooling shade" },
+                    { step: "3", title: "DC Micro-Bus", desc: "Overhead DC trunk cable routing solar output directly to central hub" },
+                    { step: "4", title: "Central Hub", desc: "20 kWh LiFePO4 battery, hybrid inverter, and communal cold storage unit" },
+                    { step: "5", title: "Stall Plugs", desc: "Weatherproof smart metered vendor drops for misters, fans and lighting" },
+                  ].map((item) => (
+                    <div
+                      key={item.step}
+                      className="p-3.5 rounded-xl border border-border bg-secondary/30 flex flex-col gap-2"
+                    >
+                      <div className="w-6 h-6 rounded-full bg-teal text-paper font-mono text-xs font-bold flex items-center justify-center">
+                        {item.step}
+                      </div>
+                      <h3 className="font-serif text-sm font-bold text-foreground">
+                        {item.title}
+                      </h3>
+                      <p className="text-xs text-muted-foreground">{item.desc}</p>
+                    </div>
+                  ))}
+                </div>
+
+                <div className="p-6 rounded-xl border border-dashed border-border bg-secondary/20 flex flex-col items-center justify-center text-center">
+                  <p className="text-xs font-mono text-muted-foreground">
+                    Interactive SVG Stepper & Component Highlight Diagram (Implemented in P8)
+                  </p>
+                </div>
+              </div>
+            </TabsContent>
+
+            {/* TAB 3: LIVE MATH */}
+            <TabsContent
+              value="math"
+              className="flex-1 rounded-xl border border-border bg-card p-6 shadow-xs min-h-0 overflow-y-auto data-[state=inactive]:hidden"
+            >
+              <div className="max-w-3xl mx-auto flex flex-col gap-6">
+                <div>
+                  <h2 className="font-serif text-2xl font-bold text-foreground">
+                    Twin Engine: Live Mathematical Validation
+                  </h2>
+                  <p className="text-sm text-muted-foreground mt-1">
+                    Pure, deterministic calculations driving every simulation tick.
+                  </p>
+                </div>
+
+                <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+                  <div className="p-4 rounded-xl border border-border bg-secondary/30 flex flex-col gap-2">
+                    <span className="text-[10px] font-mono uppercase text-muted-foreground font-bold">
+                      Equation 1
+                    </span>
+                    <h3 className="font-serif text-sm font-bold text-foreground">
+                      Solar Generation
+                    </h3>
+                    <div className="p-2.5 rounded-lg bg-card border border-border font-mono text-xs text-teal dark:text-amber">
+                      P_gen = P_cap × H_sun × η
+                    </div>
+                    <p className="text-xs text-muted-foreground">
+                      Sun factor H_sun peaks at noon; η = 0.82 system efficiency factor.
+                    </p>
+                  </div>
+
+                  <div className="p-4 rounded-xl border border-border bg-secondary/30 flex flex-col gap-2">
+                    <span className="text-[10px] font-mono uppercase text-muted-foreground font-bold">
+                      Equation 2
+                    </span>
+                    <h3 className="font-serif text-sm font-bold text-foreground">
+                      Energy Balance & Delta-E
+                    </h3>
+                    <div className="p-2.5 rounded-lg bg-card border border-border font-mono text-xs text-teal dark:text-amber">
+                      ΔE = E_avail - E_demand
+                    </div>
+                    <p className="text-xs text-muted-foreground">
+                      Governs load shedding: if ΔE &lt; 0 or grid is dead, non-critical loads shed.
+                    </p>
+                  </div>
+
+                  <div className="p-4 rounded-xl border border-border bg-secondary/30 flex flex-col gap-2">
+                    <span className="text-[10px] font-mono uppercase text-muted-foreground font-bold">
+                      Equation 3
+                    </span>
+                    <h3 className="font-serif text-sm font-bold text-foreground">
+                      Battery State & Surplus
+                    </h3>
+                    <div className="p-2.5 rounded-lg bg-card border border-border font-mono text-xs text-teal dark:text-amber">
+                      Payout = E_sold × Tariff
+                    </div>
+                    <p className="text-xs text-muted-foreground">
+                      Surplus sold back only when battery SOC ≥ 80%. Virtual rupees split to vendors.
+                    </p>
+                  </div>
+                </div>
+
+                <div className="p-6 rounded-xl border border-dashed border-border bg-secondary/20 flex flex-col items-center justify-center text-center">
+                  <p className="text-xs font-mono text-muted-foreground">
+                    Live parameter substitution banner from state.last (Implemented in P8)
+                  </p>
+                </div>
+              </div>
+            </TabsContent>
+          </Tabs>
+        </main>
+      </div>
     </div>
   );
 }
