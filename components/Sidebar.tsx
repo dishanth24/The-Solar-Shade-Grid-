@@ -240,11 +240,11 @@ export function Sidebar(props: SidebarProps) {
             </span>
           </div>
           <span className="font-mono text-[11px] font-semibold text-muted-foreground">
-            3:00 Demo
+            1:30 Demo
           </span>
         </div>
 
-        {/* Big Play/Stop 3-minute story button */}
+        {/* Big Play/Stop 90-second story button */}
         {isPlayingStory ? (
           <Button
             onClick={handleToggleStory}
@@ -259,7 +259,7 @@ export function Sidebar(props: SidebarProps) {
             className="w-full h-11 bg-amber text-ink hover:bg-amber/90 font-bold text-xs tracking-wide shadow-sm flex items-center justify-center gap-2 rounded-xl transition-transform active:scale-[0.98]"
           >
             <Play className="w-4 h-4 fill-current" />
-            <span>Play 3-Minute Story</span>
+            <span>Play 90-Second Story</span>
           </Button>
         )}
 

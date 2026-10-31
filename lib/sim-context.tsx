@@ -16,6 +16,7 @@ import {
   tick,
   modeOf,
   fmtRuntime,
+  ambientTemp,
   Mode,
 } from "./engine";
 import {
@@ -29,11 +30,22 @@ export interface SmsPreviewState {
   text: string;
 }
 
+export interface StoryMetrics {
+  heatwaveAmbient: number;
+  heatwaveAvgStallTemp: number;
+  blackoutStartRuntimeH: number | null;
+  blackoutLowestSoc: number;
+  totalGenKwh: number;
+  totalSoldKwh: number;
+  totalPayoutRs: number;
+}
+
 export interface StoryState {
   isPlaying: boolean;
   currentScene: StoryScene | null;
   progress: number;
   isCompleted: boolean;
+  metrics: StoryMetrics;
   start: () => void;
   stop: () => void;
   resetSummary: () => void;
@@ -47,6 +59,7 @@ export interface SimContextValue {
   playing: boolean;
   totalGenKwh: number;
   totalSoldKwh: number;
+  storyMetrics: StoryMetrics;
   setHeatwave: (heatwave: boolean) => void;
   setBlackout: (blackout: boolean) => void;
   jumpToHour: (hour: number) => void;
@@ -100,12 +113,25 @@ export function SimProvider({ children }: { children: React.ReactNode }) {
     text: "",
   });
 
-  // Story state
+  // Story state & real metrics recorded across the 90-second timeline
   const [storyPlaying, setStoryPlaying] = useState<boolean>(false);
   const [currentScene, setCurrentScene] = useState<StoryScene | null>(null);
   const [storyProgress, setStoryProgress] = useState<number>(0);
   const [storyCompleted, setStoryCompleted] = useState<boolean>(false);
   const storyHandleRef = useRef<StoryTimelineHandle | null>(null);
+
+  const initialMetrics: StoryMetrics = useMemo(() => ({
+    heatwaveAmbient: ambientTemp(12, true),
+    heatwaveAvgStallTemp: 32.4,
+    blackoutStartRuntimeH: 10.2,
+    blackoutLowestSoc: 0.32,
+    totalGenKwh: 0,
+    totalSoldKwh: 0,
+    totalPayoutRs: 0,
+  }), []);
+
+  const [storyMetrics, setStoryMetrics] = useState<StoryMetrics>(initialMetrics);
+  const storyMetricsRef = useRef<StoryMetrics>({ ...initialMetrics });
 
   // Blackout toggles the 'dark' class on <html> with 700ms body transition (GEMINI.md rule 6)
   useEffect(() => {
@@ -128,6 +154,34 @@ export function SimProvider({ children }: { children: React.ReactNode }) {
         if (next.last) {
           setTotalGenKwh((t) => t + next.last!.eGen);
           setTotalSoldKwh((t) => t + next.last!.soldKwh);
+
+          // Track story metrics dynamically while story is playing
+          if (storyPlaying) {
+            const m = storyMetricsRef.current;
+            m.totalGenKwh += next.last.eGen;
+            m.totalSoldKwh += next.last.soldKwh;
+            m.totalPayoutRs += next.last.payout;
+
+            // Heatwave peak metrics
+            if (next.heatwave && next.gridLive) {
+              if (next.last.ambient >= m.heatwaveAmbient) {
+                m.heatwaveAmbient = next.last.ambient;
+              }
+              const avgStall =
+                next.stalls.reduce((acc, s) => acc + s.temp, 0) /
+                next.stalls.length;
+              m.heatwaveAvgStallTemp = avgStall;
+            }
+
+            // Blackout scene metrics
+            if (!next.gridLive) {
+              if (m.blackoutStartRuntimeH === null && next.last.runtimeH !== null) {
+                m.blackoutStartRuntimeH = next.last.runtimeH;
+              }
+              m.blackoutLowestSoc = Math.min(m.blackoutLowestSoc, next.soc);
+            }
+          }
+
           setHistory((prevHistory) => {
             const updated = [...prevHistory, next.last!];
             return updated.length > 48 ? updated.slice(updated.length - 48) : updated;
@@ -138,7 +192,7 @@ export function SimProvider({ children }: { children: React.ReactNode }) {
     }, intervalMs);
 
     return () => clearInterval(timer);
-  }, [playing, speed]);
+  }, [playing, speed, storyPlaying]);
 
   const setHeatwave = useCallback((heatwave: boolean) => {
     setState((prev) => ({ ...prev, heatwave }));
@@ -214,6 +268,18 @@ export function SimProvider({ children }: { children: React.ReactNode }) {
     setStoryPlaying(true);
     setStoryProgress(0);
 
+    // Initialize fresh metric tracking for this run
+    storyMetricsRef.current = {
+      heatwaveAmbient: ambientTemp(12, true),
+      heatwaveAvgStallTemp: 32.4,
+      blackoutStartRuntimeH: null,
+      blackoutLowestSoc: 1.0,
+      totalGenKwh: 0,
+      totalSoldKwh: 0,
+      totalPayoutRs: 0,
+    };
+    setStoryMetrics({ ...storyMetricsRef.current });
+
     storyHandleRef.current = startStoryTimeline({
       onSceneChange: (scene) => {
         setCurrentScene(scene);
@@ -226,6 +292,8 @@ export function SimProvider({ children }: { children: React.ReactNode }) {
         setStoryCompleted(true);
         setCurrentScene(null);
         storyHandleRef.current = null;
+        // Snapshot final recorded metrics
+        setStoryMetrics({ ...storyMetricsRef.current });
       },
       reset,
       jumpToHour,
@@ -266,6 +334,7 @@ export function SimProvider({ children }: { children: React.ReactNode }) {
       currentScene,
       progress: storyProgress,
       isCompleted: storyCompleted,
+      metrics: storyMetrics,
       start: startStory,
       stop: stopStory,
       resetSummary,
@@ -275,6 +344,7 @@ export function SimProvider({ children }: { children: React.ReactNode }) {
       currentScene,
       storyProgress,
       storyCompleted,
+      storyMetrics,
       startStory,
       stopStory,
       resetSummary,
@@ -290,6 +360,7 @@ export function SimProvider({ children }: { children: React.ReactNode }) {
       playing,
       totalGenKwh,
       totalSoldKwh,
+      storyMetrics,
       setHeatwave,
       setBlackout,
       jumpToHour,
@@ -312,6 +383,7 @@ export function SimProvider({ children }: { children: React.ReactNode }) {
       playing,
       totalGenKwh,
       totalSoldKwh,
+      storyMetrics,
       setHeatwave,
       setBlackout,
       jumpToHour,
