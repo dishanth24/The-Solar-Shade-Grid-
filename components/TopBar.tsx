@@ -1,7 +1,10 @@
 "use client";
 
 import React from "react";
-import { Sun, Moon, Zap, Clock, Coins, SunMedium } from "lucide-react";
+import { Sun, Moon, Clock, Coins, SunMedium } from "lucide-react";
+import { useSim } from "@/lib/sim-context";
+import { fmtClock, fmtRuntime } from "@/lib/engine";
+import { AnimatedNumber } from "@/components/AnimatedNumber";
 
 export interface TopBarProps {
   clock?: string;
@@ -12,16 +15,21 @@ export interface TopBarProps {
   runtime?: string | null;
 }
 
-export function TopBar({
-  clock = "09:00",
-  isDay = true,
-  gridLive = true,
-  batterySoc = 0.7,
-  coopPool = 0,
-  runtime = null,
-}: TopBarProps) {
+export function TopBar(props: TopBarProps) {
+  const sim = useSim();
+
+  const gridLive = props.gridLive ?? sim.state.gridLive;
+  const batterySoc = props.batterySoc ?? sim.state.soc;
+  const coopPool = props.coopPool ?? sim.state.coopPool;
+  const clock = props.clock ?? fmtClock(sim.state.hour);
+  const isDay =
+    props.isDay ?? (sim.state.hour >= 6 && sim.state.hour < 18);
+  const runtime =
+    props.runtime ??
+    (sim.state.last ? fmtRuntime(sim.state.last.runtimeH) : null);
+
   const socPercent = Math.round(batterySoc * 100);
-  // SVG circle calculations for 28x28 ring: r=11, circumference = 2 * PI * 11 ≈ 69.1
+  // SVG circle calculations for 28x28 ring: r=11, circumference = 2 * PI * 11 ≈ 69.115
   const radius = 11;
   const circumference = 2 * Math.PI * radius;
   const strokeDashoffset = circumference - (socPercent / 100) * circumference;
@@ -102,6 +110,7 @@ export function TopBar({
                 strokeDashoffset={strokeDashoffset}
                 strokeLinecap="round"
                 className={batterySoc > 0.25 ? "text-green" : "text-amber"}
+                style={{ transition: "stroke-dashoffset 400ms ease" }}
               />
             </svg>
           </div>
@@ -110,7 +119,7 @@ export function TopBar({
               Battery
             </span>
             <span className="font-mono text-xs font-bold text-foreground leading-tight">
-              {socPercent}%
+              <AnimatedNumber value={socPercent} suffix="%" />
             </span>
           </div>
         </div>
@@ -123,7 +132,7 @@ export function TopBar({
               Co-Op Pool
             </span>
             <span className="font-mono text-xs font-bold text-foreground leading-tight">
-              ₹{coopPool.toLocaleString("en-IN")}
+              ₹<AnimatedNumber value={Math.round(coopPool)} />
             </span>
           </div>
         </div>

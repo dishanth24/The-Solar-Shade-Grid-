@@ -9,10 +9,10 @@ import {
   Play,
   Pause,
   RotateCcw,
-  Gauge,
   Sparkles,
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
+import { useSim } from "@/lib/sim-context";
 
 export interface SidebarProps {
   currentMode?: "normal" | "heatwave" | "blackout";
@@ -26,17 +26,59 @@ export interface SidebarProps {
   onToggleStory?: () => void;
 }
 
-export function Sidebar({
-  currentMode = "normal",
-  speed = 1,
-  storyProgress = 0,
-  isPlayingStory = false,
-  onModeSelect,
-  onDispatchAlert,
-  onSpeedChange,
-  onReset,
-  onToggleStory,
-}: SidebarProps) {
+export function Sidebar(props: SidebarProps) {
+  const sim = useSim();
+
+  const currentMode = props.currentMode ?? sim.mode;
+  const speed = props.speed ?? sim.speed;
+  const storyProgress = props.storyProgress ?? 0;
+  const isPlayingStory = props.isPlayingStory ?? false;
+
+  const handleNormal = () => {
+    if (props.onModeSelect) {
+      props.onModeSelect("normal");
+    } else {
+      sim.setBlackout(false);
+      sim.setHeatwave(false);
+      sim.jumpToHour(9);
+    }
+  };
+
+  const handleHeatwave = () => {
+    if (props.onModeSelect) {
+      props.onModeSelect("heatwave");
+    } else {
+      sim.setBlackout(false);
+      sim.setHeatwave(true);
+      sim.jumpToHour(12);
+    }
+  };
+
+  const handleBlackout = () => {
+    if (props.onModeSelect) {
+      props.onModeSelect("blackout");
+    } else {
+      sim.setBlackout(true);
+      sim.jumpToHour(18);
+    }
+  };
+
+  const handleSpeed = (s: number) => {
+    if (props.onSpeedChange) {
+      props.onSpeedChange(s);
+    } else {
+      sim.setSpeed(s);
+    }
+  };
+
+  const handleReset = () => {
+    if (props.onReset) {
+      props.onReset();
+    } else {
+      sim.reset();
+    }
+  };
+
   return (
     <aside className="w-[260px] shrink-0 border-r border-border bg-card/60 backdrop-blur flex flex-col justify-between p-3.5 select-none transition-colors duration-700 overflow-y-auto">
       <div className="flex flex-col gap-5">
@@ -57,7 +99,7 @@ export function Sidebar({
                   ? "bg-teal text-paper hover:bg-teal/90"
                   : ""
               }`}
-              onClick={() => onModeSelect?.("normal")}
+              onClick={handleNormal}
             >
               <Sun className="w-3.5 h-3.5 text-amber" />
               <span>Normal Grid</span>
@@ -70,7 +112,7 @@ export function Sidebar({
                   ? "bg-amber text-ink hover:bg-amber/90"
                   : ""
               }`}
-              onClick={() => onModeSelect?.("heatwave")}
+              onClick={handleHeatwave}
             >
               <Flame className="w-3.5 h-3.5 text-amber" />
               <span>Heatwave Peak (46°C)</span>
@@ -83,7 +125,7 @@ export function Sidebar({
                   ? "bg-red text-white hover:bg-red/90"
                   : ""
               }`}
-              onClick={() => onModeSelect?.("blackout")}
+              onClick={handleBlackout}
             >
               <ZapOff className="w-3.5 h-3.5 text-red" />
               <span>Simulate Blackout</span>
@@ -99,7 +141,7 @@ export function Sidebar({
           <Button
             variant="outline"
             className="w-full justify-start gap-2 h-9 text-xs font-semibold border-blue/40 text-blue hover:bg-blue/10 dark:text-blue dark:border-blue/50"
-            onClick={() => onDispatchAlert?.()}
+            onClick={() => props.onDispatchAlert?.()}
           >
             <Bell className="w-3.5 h-3.5 text-blue" />
             <span>Dispatch SMS Alert</span>
@@ -122,7 +164,7 @@ export function Sidebar({
               <button
                 key={s}
                 type="button"
-                onClick={() => onSpeedChange?.(s)}
+                onClick={() => handleSpeed(s)}
                 className={`py-1 text-xs font-bold rounded-md transition-all ${
                   speed === s
                     ? "bg-card text-foreground shadow-xs"
@@ -134,15 +176,36 @@ export function Sidebar({
             ))}
           </div>
 
-          <Button
-            variant="ghost"
-            size="sm"
-            className="w-full justify-center gap-1.5 text-xs text-muted-foreground hover:text-foreground mt-1"
-            onClick={() => onReset?.()}
-          >
-            <RotateCcw className="w-3 h-3" />
-            <span>Reset Simulation</span>
-          </Button>
+          <div className="flex items-center gap-2 mt-1">
+            <Button
+              variant="ghost"
+              size="sm"
+              className="flex-1 justify-center gap-1.5 text-xs text-muted-foreground hover:text-foreground"
+              onClick={handleReset}
+            >
+              <RotateCcw className="w-3 h-3" />
+              <span>Reset</span>
+            </Button>
+
+            <Button
+              variant="ghost"
+              size="sm"
+              className="flex-1 justify-center gap-1.5 text-xs text-muted-foreground hover:text-foreground"
+              onClick={() => (sim.playing ? sim.pause() : sim.play())}
+            >
+              {sim.playing ? (
+                <>
+                  <Pause className="w-3 h-3" />
+                  <span>Pause</span>
+                </>
+              ) : (
+                <>
+                  <Play className="w-3 h-3" />
+                  <span>Play</span>
+                </>
+              )}
+            </Button>
+          </div>
         </div>
       </div>
 
@@ -162,7 +225,7 @@ export function Sidebar({
 
         {/* Big Play 3-minute story button */}
         <Button
-          onClick={() => onToggleStory?.()}
+          onClick={() => props.onToggleStory?.()}
           className="w-full h-11 bg-amber text-ink hover:bg-amber/90 font-bold text-xs tracking-wide shadow-sm flex items-center justify-center gap-2 rounded-xl transition-transform active:scale-[0.98]"
         >
           {isPlayingStory ? (

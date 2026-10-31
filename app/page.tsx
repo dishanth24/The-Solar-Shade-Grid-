@@ -4,6 +4,8 @@ import React, { useState } from "react";
 import { TopBar } from "@/components/TopBar";
 import { Sidebar } from "@/components/Sidebar";
 import { Tabs, TabsList, TabsTrigger, TabsContent } from "@/components/ui/tabs";
+import { useSim } from "@/lib/sim-context";
+import { AnimatedNumber } from "@/components/AnimatedNumber";
 import {
   SunMedium,
   Activity,
@@ -12,53 +14,23 @@ import {
   Layers,
   Calculator,
   ShieldCheck,
-  CheckCircle2,
   TrendingUp,
 } from "lucide-react";
 
-const PLACEHOLDER_STALLS = [
-  { id: "s1", name: "Vegetables", temp: 30, loadKw: 0.18, status: "ok", wallet: 0 },
-  { id: "s2", name: "Fruits", temp: 30, loadKw: 0.18, status: "ok", wallet: 0 },
-  { id: "s3", name: "Flowers", temp: 30, loadKw: 0.18, status: "ok", wallet: 0 },
-  { id: "s4", name: "Dairy", temp: 30, loadKw: 0.18, status: "ok", wallet: 0 },
-  { id: "s5", name: "Spices", temp: 30, loadKw: 0.18, status: "ok", wallet: 0 },
-  { id: "s6", name: "Snacks", temp: 30, loadKw: 0.18, status: "ok", wallet: 0 },
-  { id: "s7", name: "Tea", temp: 30, loadKw: 0.18, status: "ok", wallet: 0 },
-  { id: "s8", name: "Grains", temp: 30, loadKw: 0.18, status: "ok", wallet: 0 },
-];
-
 export default function Home() {
   const [activeTab, setActiveTab] = useState("dashboard");
-  const [currentMode, setCurrentMode] = useState<"normal" | "heatwave" | "blackout">("normal");
-  const [simSpeed, setSimSpeed] = useState(1);
+  const { state } = useSim();
 
   return (
     <div className="h-screen w-screen overflow-hidden flex flex-col bg-background text-foreground transition-colors duration-700">
-      {/* Top Bar (64 px) */}
-      <TopBar
-        clock="09:00"
-        isDay={true}
-        gridLive={currentMode !== "blackout"}
-        batterySoc={0.7}
-        coopPool={0}
-        runtime={currentMode === "blackout" ? "3h 34m" : null}
-      />
+      {/* Top Bar (64 px) wired to useSim */}
+      <TopBar />
 
       {/* Main Body: Left Sidebar (260 px) + Content Area */}
       <div className="flex-1 flex overflow-hidden min-h-0">
         <Sidebar
-          currentMode={currentMode}
-          speed={simSpeed}
-          storyProgress={0}
-          isPlayingStory={false}
-          onModeSelect={(mode) => setCurrentMode(mode)}
           onDispatchAlert={() => alert("Dispatch Alert triggered (Twilio preview modal in P6)")}
-          onSpeedChange={(speed) => setSimSpeed(speed)}
-          onReset={() => {
-            setCurrentMode("normal");
-            setSimSpeed(1);
-          }}
-          onToggleStory={() => alert("Story mode will start in P5")}
+          onToggleStory={() => alert("3-minute story mode will be activated in P5")}
         />
 
         {/* Tabbed Content Area */}
@@ -95,8 +67,11 @@ export default function Home() {
               </TabsList>
 
               <div className="text-[11px] font-mono text-muted-foreground flex items-center gap-2">
-                <span className="w-2 h-2 rounded-full bg-green inline-block"></span>
-                <span>Twin Engine Ready</span>
+                <span className="w-2 h-2 rounded-full bg-green inline-block animate-pulse"></span>
+                <span>
+                  Simulation Active • Hour {Math.floor(state.hour)}:
+                  {String(Math.round((state.hour % 1) * 60)).padStart(2, "0")}
+                </span>
               </div>
             </div>
 
@@ -161,11 +136,11 @@ export default function Home() {
                       <div className="flex items-center gap-3 text-[11px] font-medium">
                         <span className="flex items-center gap-1.5 text-foreground">
                           <span className="w-2.5 h-2.5 rounded-full bg-amber inline-block"></span>
-                          Solar Gen (kW)
+                          Solar Gen: {(state.last?.genKw ?? 0).toFixed(1)} kW
                         </span>
                         <span className="flex items-center gap-1.5 text-foreground">
                           <span className="w-2.5 h-2.5 rounded-full bg-teal inline-block"></span>
-                          Total Demand (kW)
+                          Total Demand: {(state.last?.demandKw ?? 0).toFixed(1)} kW
                         </span>
                       </div>
                     </div>
@@ -203,44 +178,63 @@ export default function Home() {
                         <span>synced</span>
                       </div>
                       <span className="text-[10px] font-mono font-bold px-1.5 py-0.5 rounded bg-secondary text-foreground">
-                        Pool: ₹0
+                        Pool: ₹<AnimatedNumber value={Math.round(state.coopPool)} />
                       </span>
                     </div>
                   </div>
 
-                  {/* 8 Stall Cards in 2x4 Grid */}
+                  {/* 8 Stall Cards in 2x4 Grid driven by useSim */}
                   <div className="flex-1 grid grid-cols-2 grid-rows-4 gap-1.5 min-h-0">
-                    {PLACEHOLDER_STALLS.map((stall) => (
-                      <div
-                        key={stall.id}
-                        className="rounded-lg border border-border bg-card p-2 flex flex-col justify-between shadow-xs hover:border-teal/40 transition-all min-h-0"
-                      >
-                        <div className="flex items-center justify-between leading-none">
-                          <span className="text-xs font-bold text-foreground truncate">
-                            {stall.name}
-                          </span>
-                          <span className="text-[9px] font-bold px-1.5 py-0.5 rounded-full bg-green/10 text-green border border-green/30 uppercase">
-                            {stall.status}
-                          </span>
-                        </div>
-                        <div className="grid grid-cols-2 gap-1 text-[11px] font-mono leading-tight my-0.5">
-                          <div>
-                            <span className="text-[9px] text-muted-foreground block">Temp</span>
-                            <span className="font-semibold text-foreground">{stall.temp}°C</span>
+                    {state.stalls.map((stall) => {
+                      const statusColor =
+                        stall.status === "ok"
+                          ? "bg-green/10 text-green border-green/30"
+                          : stall.status === "amber"
+                          ? "bg-amber/15 text-amber border-amber/40"
+                          : "bg-red/10 text-red border-red/40";
+
+                      return (
+                        <div
+                          key={stall.id}
+                          className="rounded-lg border border-border bg-card p-2 flex flex-col justify-between shadow-xs hover:border-teal/40 transition-all min-h-0"
+                        >
+                          <div className="flex items-center justify-between leading-none">
+                            <span className="text-xs font-bold text-foreground truncate">
+                              {stall.name}
+                            </span>
+                            <span
+                              className={`text-[9px] font-bold px-1.5 py-0.5 rounded-full border uppercase ${statusColor}`}
+                            >
+                              {stall.status}
+                            </span>
                           </div>
-                          <div>
-                            <span className="text-[9px] text-muted-foreground block">Load</span>
-                            <span className="font-semibold text-foreground">{stall.loadKw} kW</span>
+                          <div className="grid grid-cols-2 gap-1 text-[11px] font-mono leading-tight my-0.5">
+                            <div>
+                              <span className="text-[9px] text-muted-foreground block">Temp</span>
+                              <span className="font-semibold text-foreground">
+                                <AnimatedNumber
+                                  value={stall.temp}
+                                  decimals={1}
+                                  suffix="°C"
+                                />
+                              </span>
+                            </div>
+                            <div>
+                              <span className="text-[9px] text-muted-foreground block">Load</span>
+                              <span className="font-semibold text-foreground">
+                                {stall.loadKw.toFixed(2)} kW
+                              </span>
+                            </div>
+                          </div>
+                          <div className="flex items-center justify-between text-[10px] border-t border-border/60 pt-0.5">
+                            <span className="text-muted-foreground text-[9px]">Wallet</span>
+                            <span className="font-mono font-bold text-teal dark:text-amber">
+                              ₹<AnimatedNumber value={Math.round(stall.wallet)} />
+                            </span>
                           </div>
                         </div>
-                        <div className="flex items-center justify-between text-[10px] border-t border-border/60 pt-0.5">
-                          <span className="text-muted-foreground text-[9px]">Wallet</span>
-                          <span className="font-mono font-bold text-teal dark:text-amber">
-                            ₹{stall.wallet}
-                          </span>
-                        </div>
-                      </div>
-                    ))}
+                      );
+                    })}
                   </div>
                 </div>
               </div>
@@ -265,22 +259,33 @@ export default function Home() {
                 <div className="flex-1 overflow-y-auto space-y-1 text-xs pr-1">
                   <div className="flex items-start gap-2">
                     <span className="text-green font-bold shrink-0">[RULE]</span>
-                    <span className="text-muted-foreground shrink-0">09:00</span>
+                    <span className="text-muted-foreground shrink-0">
+                      {Math.floor(state.hour)}:00
+                    </span>
                     <span className="text-paper">
-                      Grid live. Canopy generating 8.4 kW. Cold storage base active at 1.2 kW.
+                      {state.gridLive
+                        ? `Grid live. Canopy generating ${(state.last?.genKw ?? 0).toFixed(1)} kW. Cold storage active.`
+                        : `BLACKOUT: Municipal grid disconnected. Battery supplying emergency loads.`}
                     </span>
                   </div>
                   <div className="flex items-start gap-2">
                     <span className="text-amber font-bold shrink-0">[AI]</span>
-                    <span className="text-muted-foreground shrink-0">09:00</span>
+                    <span className="text-muted-foreground shrink-0">
+                      {Math.floor(state.hour)}:00
+                    </span>
                     <span className="text-[#D1E6E8]">
-                      Normal morning balance: canopy covers 100% vendor load and charges battery
-                      reserve.
+                      {state.heatwave
+                        ? `Heatwave condition detected. Misting pumps engaged and cold storage boosted.`
+                        : state.gridLive
+                        ? `Normal morning balance: canopy covers vendor load and charges battery reserve.`
+                        : `Emergency power conservation active. Safety lighting and produce preservation prioritized.`}
                     </span>
                   </div>
                   <div className="flex items-start gap-2 text-muted-foreground">
                     <span className="text-blue font-bold shrink-0">[RULE]</span>
-                    <span className="shrink-0">09:15</span>
+                    <span className="shrink-0">
+                      {Math.floor(state.hour)}:15
+                    </span>
                     <span>
                       Vendor tariffs synchronized across 8 stalls. Virtual credits ledger ready.
                     </span>
