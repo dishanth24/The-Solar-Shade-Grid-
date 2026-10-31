@@ -16,6 +16,8 @@ import {
   tick,
   modeOf,
   fmtRuntime,
+  fmtClock,
+  templateLog,
   ambientTemp,
   Mode,
 } from "./engine";
@@ -28,6 +30,7 @@ import {
 export interface SmsPreviewState {
   isOpen: boolean;
   text: string;
+  sentViaTwilio: boolean;
 }
 
 export interface StoryMetrics {
@@ -51,6 +54,14 @@ export interface StoryState {
   resetSummary: () => void;
 }
 
+export interface LogEntry {
+  id: string;
+  time: string;
+  text: string;
+  source: "AI" | "RULE";
+  rawSource: "gemini" | "template";
+}
+
 export interface SimContextValue {
   state: GridState;
   history: TickResult[];
@@ -60,6 +71,8 @@ export interface SimContextValue {
   totalGenKwh: number;
   totalSoldKwh: number;
   storyMetrics: StoryMetrics;
+  logs: LogEntry[];
+  lastLogSource: "gemini" | "template";
   setHeatwave: (heatwave: boolean) => void;
   setBlackout: (blackout: boolean) => void;
   jumpToHour: (hour: number) => void;
@@ -107,10 +120,87 @@ export function SimProvider({ children }: { children: React.ReactNode }) {
     return first.last ? first.last.soldKwh : 0;
   });
 
+  // Logs state (max 50 lines) and last log source for terminal footer
+  const [logs, setLogs] = useState<LogEntry[]>(() => {
+    const init = createInitialState(9, 0.7);
+    const first = tick(init, 0.25);
+    return [
+      {
+        id: "init",
+        time: fmtClock(9),
+        text: templateLog(first.last!, true),
+        source: "RULE",
+        rawSource: "template",
+      },
+    ];
+  });
+  const [lastLogSource, setLastLogSource] = useState<"gemini" | "template">("template");
+  const lastApiCallRef = useRef<number>(0);
+  const hadFirstPayoutRef = useRef<boolean>(false);
+
+  const appendLog = useCallback((entry: LogEntry) => {
+    setLogs((prev) => {
+      const next = [...prev, entry];
+      return next.length > 50 ? next.slice(next.length - 50) : next;
+    });
+    setLastLogSource(entry.rawSource);
+  }, []);
+
+  // Event-driven API log triggering with 8-second rate limit
+  const triggerLogEvent = useCallback(
+    async (
+      result: TickResult | null,
+      gridLive: boolean,
+      mode: string,
+      forceApi: boolean = false
+    ) => {
+      if (!result) return;
+      const now = Date.now();
+      const timeSinceLastApi = now - lastApiCallRef.current;
+      const timeStr = fmtClock(result.hour);
+
+      if (forceApi || timeSinceLastApi >= 8000) {
+        lastApiCallRef.current = now;
+        try {
+          const res = await fetch("/api/log", {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({ result, gridLive, mode }),
+          });
+          if (res.ok) {
+            const data = await res.json();
+            const isGemini = data.source === "gemini";
+            appendLog({
+              id: `${now}-${Math.random()}`,
+              time: timeStr,
+              text: data.text || templateLog(result, gridLive),
+              source: isGemini ? "AI" : "RULE",
+              rawSource: isGemini ? "gemini" : "template",
+            });
+            return;
+          }
+        } catch {
+          // Fall through to fallback
+        }
+      }
+
+      // Fallback rule log
+      appendLog({
+        id: `${now}-${Math.random()}`,
+        time: timeStr,
+        text: templateLog(result, gridLive),
+        source: "RULE",
+        rawSource: "template",
+      });
+    },
+    [appendLog]
+  );
+
   // SMS alert preview state
   const [smsPreview, setSmsPreview] = useState<SmsPreviewState>({
     isOpen: false,
     text: "",
+    sentViaTwilio: false,
   });
 
   // Story state & real metrics recorded across the 90-second timeline
@@ -150,10 +240,33 @@ export function SimProvider({ children }: { children: React.ReactNode }) {
     const intervalMs = Math.max(80, Math.round(1500 / speed));
     const timer = setInterval(() => {
       setState((prev) => {
+        const prevHeatwave = prev.heatwave;
+        const prevGridLive = prev.gridLive;
+        const prevShedding = prev.last?.shedding ?? false;
+
         const next = tick(prev, 0.25);
         if (next.last) {
           setTotalGenKwh((t) => t + next.last!.eGen);
           setTotalSoldKwh((t) => t + next.last!.soldKwh);
+
+          // Check events for logging:
+          // 1. Heatwave starts
+          if (!prevHeatwave && next.heatwave) {
+            triggerLogEvent(next.last, next.gridLive, modeOf(next));
+          }
+          // 2. Blackout starts
+          else if (prevGridLive && !next.gridLive) {
+            triggerLogEvent(next.last, next.gridLive, modeOf(next));
+          }
+          // 3. Shedding starts
+          else if (!prevShedding && next.last.shedding) {
+            triggerLogEvent(next.last, next.gridLive, modeOf(next));
+          }
+          // 4. First payout
+          else if (!hadFirstPayoutRef.current && next.last.payout > 0) {
+            hadFirstPayoutRef.current = true;
+            triggerLogEvent(next.last, next.gridLive, modeOf(next));
+          }
 
           // Track story metrics dynamically while story is playing
           if (storyPlaying) {
@@ -192,7 +305,7 @@ export function SimProvider({ children }: { children: React.ReactNode }) {
     }, intervalMs);
 
     return () => clearInterval(timer);
-  }, [playing, speed, storyPlaying]);
+  }, [playing, speed, storyPlaying, triggerLogEvent]);
 
   const setHeatwave = useCallback((heatwave: boolean) => {
     setState((prev) => ({ ...prev, heatwave }));
@@ -216,6 +329,8 @@ export function SimProvider({ children }: { children: React.ReactNode }) {
     const init = createInitialState(9, 0.7);
     const first = tick(init, 0.25);
     const starting = { ...first, hour: 9 };
+    hadFirstPayoutRef.current = false;
+    lastApiCallRef.current = 0;
     setState(starting);
     setHistory(starting.last ? [starting.last] : []);
     setTotalGenKwh(starting.last ? starting.last.eGen : 0);
@@ -227,21 +342,53 @@ export function SimProvider({ children }: { children: React.ReactNode }) {
     }
   }, []);
 
-  // Empty hook for Gemini scene (wired in P6)
+  // Hook for Gemini scene (Scene 4) in the story
   const onGeminiScene = useCallback(() => {
-    // P6 will implement real /api/log call here; caption is updated in story scene
-  }, []);
+    if (state.last) {
+      triggerLogEvent(state.last, state.gridLive, modeOf(state), true);
+    }
+  }, [state, triggerLogEvent]);
 
-  // Dispatch alert implementation
+  // Dispatch alert implementation: POST /api/sms
   const dispatchAlert = useCallback(
-    (customText?: string) => {
+    async (customText?: string) => {
       const socPct = Math.round(state.soc * 100);
-      const gridStr = state.gridLive ? "LIVE" : "BLACKOUT";
+      const gridLive = state.gridLive;
       const runtimeStr = fmtRuntime(state.last?.runtimeH ?? null);
-      const text =
+      const defaultBody =
         customText ||
-        `Solar Shade Grid: battery ${socPct}%, grid ${gridStr}, runtime ${runtimeStr}.`;
-      setSmsPreview({ isOpen: true, text });
+        `Solar Shade Grid: battery ${socPct}%, grid ${gridLive ? "LIVE" : "BLACKOUT"}${
+          gridLive ? "" : `, runtime ${runtimeStr}`
+        }.`;
+
+      try {
+        const res = await fetch("/api/sms", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            soc: socPct,
+            gridLive,
+            runtime: runtimeStr,
+          }),
+        });
+        if (res.ok) {
+          const data = await res.json();
+          setSmsPreview({
+            isOpen: true,
+            text: data.body || defaultBody,
+            sentViaTwilio: data.ok === true,
+          });
+          return;
+        }
+      } catch {
+        // Network or server error
+      }
+
+      setSmsPreview({
+        isOpen: true,
+        text: defaultBody,
+        sentViaTwilio: false,
+      });
     },
     [state.soc, state.gridLive, state.last]
   );
@@ -361,6 +508,8 @@ export function SimProvider({ children }: { children: React.ReactNode }) {
       totalGenKwh,
       totalSoldKwh,
       storyMetrics,
+      logs,
+      lastLogSource,
       setHeatwave,
       setBlackout,
       jumpToHour,
@@ -384,6 +533,8 @@ export function SimProvider({ children }: { children: React.ReactNode }) {
       totalGenKwh,
       totalSoldKwh,
       storyMetrics,
+      logs,
+      lastLogSource,
       setHeatwave,
       setBlackout,
       jumpToHour,

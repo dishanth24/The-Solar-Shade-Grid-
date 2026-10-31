@@ -11,6 +11,7 @@ import {
   ShieldAlert,
   ChevronLeft,
   SunMedium,
+  CheckCircle2,
 } from "lucide-react";
 
 export function SmsPreview() {
@@ -77,10 +78,17 @@ export function SmsPreview() {
               Co-Op Dispatch System
             </span>
 
-            {/* Label as specified in BUILD_GUIDE */}
-            <div className="mt-1.5 px-2 py-0.5 rounded-full bg-amber/15 text-amber border border-amber/30 text-[9px] font-semibold tracking-wide">
-              Preview (Twilio not connected yet)
-            </div>
+            {/* Labelled "Sent via Twilio" only if ok is true, otherwise "Preview (Twilio unavailable)" */}
+            {smsPreview.sentViaTwilio ? (
+              <div className="mt-1.5 px-2.5 py-0.5 rounded-full bg-green/20 text-green border border-green/40 text-[9px] font-semibold tracking-wide flex items-center gap-1">
+                <CheckCircle2 className="w-3 h-3" />
+                <span>Sent via Twilio</span>
+              </div>
+            ) : (
+              <div className="mt-1.5 px-2.5 py-0.5 rounded-full bg-amber/15 text-amber border border-amber/30 text-[9px] font-semibold tracking-wide">
+                Preview (Twilio unavailable)
+              </div>
+            )}
           </div>
 
           {/* Message Thread Body */}
@@ -99,7 +107,7 @@ export function SmsPreview() {
                   {smsPreview.text}
                 </div>
                 <div className="text-[9px] text-[#789AA0] font-mono px-1">
-                  Delivered • Twilio SMS Protocol
+                  {smsPreview.sentViaTwilio ? "Delivered via Twilio SMS" : "On-screen preview mode"}
                 </div>
               </div>
             </div>
