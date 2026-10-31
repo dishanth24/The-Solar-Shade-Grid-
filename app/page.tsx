@@ -84,8 +84,8 @@ export default function Home() {
               <div className="flex-1 flex gap-2 min-h-0 overflow-hidden">
                 {/* Centre Column: Top (MarketMap) + Bottom (PowerChart) */}
                 <div className="flex-1 flex flex-col gap-2 min-w-0 min-h-0">
-                  {/* Centre Top: MarketMap SVG (P3) */}
-                  <div className="flex-[3] min-h-0 rounded-xl border border-border bg-card overflow-hidden shadow-xs transition-colors duration-700">
+                  {/* Centre Top: MarketMap SVG (P3) — card shrinks to SVG aspect ratio */}
+                  <div className="w-full rounded-xl border border-border bg-card overflow-hidden shadow-xs transition-colors duration-700 shrink-0">
                     <MarketMap />
                   </div>
 
