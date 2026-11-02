@@ -41,11 +41,12 @@ const PYLON_GRID_Y = 164;
 // Fix 3: direction label placed BELOW the pylon tower, clear of hub and X.
 // Pylon tower bottom ground line: PYLON_GRID_Y + 62 = 226
 // Label pill sits at y=232, text at y=248. Well below hub (270) and clear of caption.
-const DIR_PILL_X  = PYLON_X - 72;  // 833
-const DIR_PILL_Y  = 232;
-const DIR_PILL_W  = 148;
+// FIX: label now sits ABOVE the pylon, fully inside the viewBox (850..960), clear of the hub, X and sun.
+const DIR_PILL_W  = 110;
+const DIR_PILL_X  = PYLON_X - DIR_PILL_W / 2;  // 850
+const DIR_PILL_Y  = 92;
 const DIR_PILL_H  = 22;
-const DIR_TEXT_Y  = DIR_PILL_Y + 15; // 247
+const DIR_TEXT_Y  = DIR_PILL_Y + 16; // 108
 
 // Fix 3 (X): broken-X sits on the hub→pylon line midpoint
 // Hub right edge (870, HUB_Y+HUB_H/2=194) → Pylon (905,164), midpoint ≈ (887, 179)
@@ -114,7 +115,7 @@ export function MarketMap() {
     :                                     "none";
 
   // Direction label text (Fix 3)
-  const dirLabel = !gridLive       ? "DISCONNECTED"
+  const dirLabel = !gridLive       ? "GRID DOWN"
     : soldKwh       > 0            ? "▶ Selling"
     : gridImportKwh > 0            ? "◀ Importing"
     :                                "Standby";

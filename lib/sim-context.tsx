@@ -18,7 +18,6 @@ import {
   fmtRuntime,
   fmtClock,
   templateLog,
-  ambientTemp,
   Mode,
 } from "./engine";
 import {
@@ -90,6 +89,17 @@ export interface SimContextValue {
 
 const SimContext = createContext<SimContextValue | null>(null);
 
+// Metrics start empty. They are only filled by real values recorded while the story runs.
+const EMPTY_METRICS: StoryMetrics = {
+  heatwaveAmbient: 0,
+  heatwaveAvgStallTemp: 0,
+  blackoutStartRuntimeH: null,
+  blackoutLowestSoc: 1,
+  totalGenKwh: 0,
+  totalSoldKwh: 0,
+  totalPayoutRs: 0,
+};
+
 export function SimProvider({ children }: { children: React.ReactNode }) {
   // Initialize state at 09:00, 70% SOC with an initial computed tick result
   const [state, setState] = useState<GridState>(() => {
@@ -100,6 +110,15 @@ export function SimProvider({ children }: { children: React.ReactNode }) {
       hour: 9,
     };
   });
+
+  // FIX: the latest state lives in a ref too. Timers and the story timeline read the ref,
+  // so they always see the CURRENT battery / grid status (not the values from when they started),
+  // and side effects no longer run inside a React state updater (which React runs twice in dev).
+  const stateRef = useRef<GridState>(state);
+  const commit = useCallback((next: GridState) => {
+    stateRef.current = next;
+    setState(next);
+  }, []);
 
   const [history, setHistory] = useState<TickResult[]>(() => {
     const init = createInitialState(9, 0.7);
@@ -128,7 +147,7 @@ export function SimProvider({ children }: { children: React.ReactNode }) {
       {
         id: "init",
         time: fmtClock(9),
-        text: templateLog(first.last!, true),
+        text: templateLog(first.last!, true).replace(/^\[\d{1,2}:\d{2}\]\s*/, ""),
         source: "RULE",
         rawSource: "template",
       },
@@ -137,13 +156,22 @@ export function SimProvider({ children }: { children: React.ReactNode }) {
   const [lastLogSource, setLastLogSource] = useState<"gemini" | "template">("template");
   const lastApiCallRef = useRef<number>(0);
   const hadFirstPayoutRef = useRef<boolean>(false);
+  // FIX: remember the previous heatwave / grid flags so "heatwave starts" and "blackout starts" events really fire.
+  const heatSeenRef = useRef<boolean>(false);
+  const gridSeenRef = useRef<boolean>(true);
 
   const appendLog = useCallback((entry: LogEntry) => {
+    // FIX: templateLog() already starts with "[HH:MM] " and the terminal prints the time itself,
+    // so strip that prefix to avoid showing the time twice.
+    const cleaned: LogEntry = {
+      ...entry,
+      text: entry.text.replace(/^\[\d{1,2}:\d{2}\]\s*/, ""),
+    };
     setLogs((prev) => {
-      const next = [...prev, entry];
+      const next = [...prev, cleaned];
       return next.length > 50 ? next.slice(next.length - 50) : next;
     });
-    setLastLogSource(entry.rawSource);
+    setLastLogSource(cleaned.rawSource);
   }, []);
 
   // Event-driven API log triggering with 8-second rate limit
@@ -205,23 +233,16 @@ export function SimProvider({ children }: { children: React.ReactNode }) {
 
   // Story state & real metrics recorded across the 90-second timeline
   const [storyPlaying, setStoryPlaying] = useState<boolean>(false);
+  const storyPlayingRef = useRef<boolean>(false);
   const [currentScene, setCurrentScene] = useState<StoryScene | null>(null);
   const [storyProgress, setStoryProgress] = useState<number>(0);
   const [storyCompleted, setStoryCompleted] = useState<boolean>(false);
   const storyHandleRef = useRef<StoryTimelineHandle | null>(null);
 
-  const initialMetrics: StoryMetrics = useMemo(() => ({
-    heatwaveAmbient: ambientTemp(12, true),
-    heatwaveAvgStallTemp: 32.4,
-    blackoutStartRuntimeH: 10.2,
-    blackoutLowestSoc: 0.32,
-    totalGenKwh: 0,
-    totalSoldKwh: 0,
-    totalPayoutRs: 0,
-  }), []);
-
-  const [storyMetrics, setStoryMetrics] = useState<StoryMetrics>(initialMetrics);
-  const storyMetricsRef = useRef<StoryMetrics>({ ...initialMetrics });
+  const [storyMetrics, setStoryMetrics] = useState<StoryMetrics>(EMPTY_METRICS);
+  const storyMetricsRef = useRef<StoryMetrics>({ ...EMPTY_METRICS });
+  const hwStallSumRef = useRef<number>(0);
+  const hwStallCountRef = useRef<number>(0);
 
   // Blackout toggles the 'dark' class on <html> with 700ms body transition (GEMINI.md rule 6)
   useEffect(() => {
@@ -239,88 +260,86 @@ export function SimProvider({ children }: { children: React.ReactNode }) {
 
     const intervalMs = Math.max(80, Math.round(1500 / speed));
     const timer = setInterval(() => {
-      setState((prev) => {
-        const prevHeatwave = prev.heatwave;
-        const prevGridLive = prev.gridLive;
-        const prevShedding = prev.last?.shedding ?? false;
+      const prev = stateRef.current;
+      const prevShedding = prev.last?.shedding ?? false;
 
-        const next = tick(prev, 0.25);
-        if (next.last) {
-          setTotalGenKwh((t) => t + next.last!.eGen);
-          setTotalSoldKwh((t) => t + next.last!.soldKwh);
+      const next = tick(prev, 0.25);
+      commit(next);
 
-          // Check events for logging:
-          // 1. Heatwave starts
-          if (!prevHeatwave && next.heatwave) {
-            triggerLogEvent(next.last, next.gridLive, modeOf(next));
-          }
-          // 2. Blackout starts
-          else if (prevGridLive && !next.gridLive) {
-            triggerLogEvent(next.last, next.gridLive, modeOf(next));
-          }
-          // 3. Shedding starts
-          else if (!prevShedding && next.last.shedding) {
-            triggerLogEvent(next.last, next.gridLive, modeOf(next));
-          }
-          // 4. First payout
-          else if (!hadFirstPayoutRef.current && next.last.payout > 0) {
-            hadFirstPayoutRef.current = true;
-            triggerLogEvent(next.last, next.gridLive, modeOf(next));
-          }
+      const r = next.last;
+      if (!r) return;
 
-          // Track story metrics dynamically while story is playing
-          if (storyPlaying) {
-            const m = storyMetricsRef.current;
-            m.totalGenKwh += next.last.eGen;
-            m.totalSoldKwh += next.last.soldKwh;
-            m.totalPayoutRs += next.last.payout;
+      setTotalGenKwh((t) => t + r.eGen);
+      setTotalSoldKwh((t) => t + r.soldKwh);
 
-            // Heatwave peak metrics
-            if (next.heatwave && next.gridLive) {
-              if (next.last.ambient >= m.heatwaveAmbient) {
-                m.heatwaveAmbient = next.last.ambient;
-              }
-              const avgStall =
-                next.stalls.reduce((acc, s) => acc + s.temp, 0) /
-                next.stalls.length;
-              m.heatwaveAvgStallTemp = avgStall;
-            }
+      // Log events: heatwave starts, blackout starts, shedding starts, first payout (one log line per tick at most)
+      let fire = false;
+      if (next.heatwave && !heatSeenRef.current) fire = true;
+      if (!next.gridLive && gridSeenRef.current) fire = true;
+      if (!prevShedding && r.shedding) fire = true;
+      if (!hadFirstPayoutRef.current && r.payout > 0) {
+        hadFirstPayoutRef.current = true;
+        fire = true;
+      }
+      heatSeenRef.current = next.heatwave;
+      gridSeenRef.current = next.gridLive;
+      if (fire) triggerLogEvent(r, next.gridLive, modeOf(next));
 
-            // Blackout scene metrics
-            if (!next.gridLive) {
-              if (m.blackoutStartRuntimeH === null && next.last.runtimeH !== null) {
-                m.blackoutStartRuntimeH = next.last.runtimeH;
-              }
-              m.blackoutLowestSoc = Math.min(m.blackoutLowestSoc, next.soc);
-            }
-          }
+      // Record real story metrics while the story is playing
+      if (storyPlayingRef.current) {
+        const m = storyMetricsRef.current;
+        m.totalGenKwh += r.eGen;
+        m.totalSoldKwh += r.soldKwh;
+        m.totalPayoutRs += r.payout;
 
-          setHistory((prevHistory) => {
-            const updated = [...prevHistory, next.last!];
-            return updated.length > 48 ? updated.slice(updated.length - 48) : updated;
-          });
+        // Heatwave scene: peak ambient and the average stall temperature across the scene
+        if (next.heatwave && next.gridLive) {
+          m.heatwaveAmbient = Math.max(m.heatwaveAmbient, r.ambient);
+          const avgStall =
+            next.stalls.reduce((acc, s) => acc + s.temp, 0) / next.stalls.length;
+          hwStallSumRef.current += avgStall;
+          hwStallCountRef.current += 1;
+          m.heatwaveAvgStallTemp = hwStallSumRef.current / hwStallCountRef.current;
         }
-        return next;
+
+        // Blackout scene: runtime at the start and lowest battery reached
+        if (!next.gridLive) {
+          if (m.blackoutStartRuntimeH === null && r.runtimeH !== null) {
+            m.blackoutStartRuntimeH = r.runtimeH;
+          }
+          m.blackoutLowestSoc = Math.min(m.blackoutLowestSoc, next.soc);
+        }
+      }
+
+      setHistory((prevHistory) => {
+        const updated = [...prevHistory, r];
+        return updated.length > 48 ? updated.slice(updated.length - 48) : updated;
       });
     }, intervalMs);
 
     return () => clearInterval(timer);
-  }, [playing, speed, storyPlaying, triggerLogEvent]);
+  }, [playing, speed, triggerLogEvent, commit]);
 
-  const setHeatwave = useCallback((heatwave: boolean) => {
-    setState((prev) => ({ ...prev, heatwave }));
-  }, []);
+  const setHeatwave = useCallback(
+    (heatwave: boolean) => {
+      commit({ ...stateRef.current, heatwave });
+    },
+    [commit]
+  );
 
-  const setBlackout = useCallback((blackout: boolean) => {
-    setState((prev) => ({ ...prev, gridLive: !blackout }));
-  }, []);
+  const setBlackout = useCallback(
+    (blackout: boolean) => {
+      commit({ ...stateRef.current, gridLive: !blackout });
+    },
+    [commit]
+  );
 
-  const jumpToHour = useCallback((hour: number) => {
-    setState((prev) => ({
-      ...prev,
-      hour: ((hour % 24) + 24) % 24,
-    }));
-  }, []);
+  const jumpToHour = useCallback(
+    (hour: number) => {
+      commit({ ...stateRef.current, hour: ((hour % 24) + 24) % 24 });
+    },
+    [commit]
+  );
 
   const pause = useCallback(() => setPlaying(false), []);
   const play = useCallback(() => setPlaying(true), []);
@@ -330,8 +349,10 @@ export function SimProvider({ children }: { children: React.ReactNode }) {
     const first = tick(init, 0.25);
     const starting = { ...first, hour: 9 };
     hadFirstPayoutRef.current = false;
+    heatSeenRef.current = false;
+    gridSeenRef.current = true;
     lastApiCallRef.current = 0;
-    setState(starting);
+    commit(starting);
     setHistory(starting.last ? [starting.last] : []);
     setTotalGenKwh(starting.last ? starting.last.eGen : 0);
     setTotalSoldKwh(starting.last ? starting.last.soldKwh : 0);
@@ -340,58 +361,57 @@ export function SimProvider({ children }: { children: React.ReactNode }) {
     if (typeof document !== "undefined") {
       document.documentElement.classList.remove("dark");
     }
-  }, []);
+  }, [commit]);
 
-  // Hook for Gemini scene (Scene 4) in the story
+  // Hook for Gemini scene (Scene 4) in the story. Reads the CURRENT state from the ref.
   const onGeminiScene = useCallback(() => {
-    if (state.last) {
-      triggerLogEvent(state.last, state.gridLive, modeOf(state), true);
+    const s = stateRef.current;
+    if (s.last) {
+      triggerLogEvent(s.last, s.gridLive, modeOf(s), true);
     }
-  }, [state, triggerLogEvent]);
+  }, [triggerLogEvent]);
 
-  // Dispatch alert implementation: POST /api/sms
-  const dispatchAlert = useCallback(
-    async (customText?: string) => {
-      const socPct = Math.round(state.soc * 100);
-      const gridLive = state.gridLive;
-      const runtimeStr = fmtRuntime(state.last?.runtimeH ?? null);
-      const defaultBody =
-        customText ||
-        `Solar Shade Grid: battery ${socPct}%, grid ${gridLive ? "LIVE" : "BLACKOUT"}${
-          gridLive ? "" : `, runtime ${runtimeStr}`
-        }.`;
+  // Dispatch alert implementation: POST /api/sms. Reads the CURRENT state from the ref.
+  const dispatchAlert = useCallback(async (customText?: string) => {
+    const s = stateRef.current;
+    const socPct = Math.round(s.soc * 100);
+    const gridLive = s.gridLive;
+    const runtimeStr = fmtRuntime(s.last?.runtimeH ?? null);
+    const defaultBody =
+      customText ||
+      `Solar Shade Grid: battery ${socPct}%, grid ${gridLive ? "LIVE" : "BLACKOUT"}${
+        gridLive ? "" : `, runtime ${runtimeStr}`
+      }.`;
 
-      try {
-        const res = await fetch("/api/sms", {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({
-            soc: socPct,
-            gridLive,
-            runtime: runtimeStr,
-          }),
-        });
-        if (res.ok) {
-          const data = await res.json();
-          setSmsPreview({
-            isOpen: true,
-            text: data.body || defaultBody,
-            sentViaTwilio: data.ok === true,
-          });
-          return;
-        }
-      } catch {
-        // Network or server error
-      }
-
-      setSmsPreview({
-        isOpen: true,
-        text: defaultBody,
-        sentViaTwilio: false,
+    try {
+      const res = await fetch("/api/sms", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          soc: socPct,
+          gridLive,
+          runtime: runtimeStr,
+        }),
       });
-    },
-    [state.soc, state.gridLive, state.last]
-  );
+      if (res.ok) {
+        const data = await res.json();
+        setSmsPreview({
+          isOpen: true,
+          text: data.body || defaultBody,
+          sentViaTwilio: data.ok === true,
+        });
+        return;
+      }
+    } catch {
+      // Network or server error
+    }
+
+    setSmsPreview({
+      isOpen: true,
+      text: defaultBody,
+      sentViaTwilio: false,
+    });
+  }, []);
 
   const closeSmsPreview = useCallback(() => {
     setSmsPreview((prev) => ({ ...prev, isOpen: false }));
@@ -403,6 +423,7 @@ export function SimProvider({ children }: { children: React.ReactNode }) {
       storyHandleRef.current.stop();
       storyHandleRef.current = null;
     }
+    storyPlayingRef.current = false;
     setStoryPlaying(false);
     setCurrentScene(null);
   }, []);
@@ -412,19 +433,14 @@ export function SimProvider({ children }: { children: React.ReactNode }) {
       storyHandleRef.current.stop();
     }
     setStoryCompleted(false);
+    storyPlayingRef.current = true;
     setStoryPlaying(true);
     setStoryProgress(0);
 
-    // Initialize fresh metric tracking for this run
-    storyMetricsRef.current = {
-      heatwaveAmbient: ambientTemp(12, true),
-      heatwaveAvgStallTemp: 32.4,
-      blackoutStartRuntimeH: null,
-      blackoutLowestSoc: 1.0,
-      totalGenKwh: 0,
-      totalSoldKwh: 0,
-      totalPayoutRs: 0,
-    };
+    // Initialize fresh metric tracking for this run (no hard-coded numbers)
+    hwStallSumRef.current = 0;
+    hwStallCountRef.current = 0;
+    storyMetricsRef.current = { ...EMPTY_METRICS };
     setStoryMetrics({ ...storyMetricsRef.current });
 
     storyHandleRef.current = startStoryTimeline({
@@ -435,6 +451,7 @@ export function SimProvider({ children }: { children: React.ReactNode }) {
         setStoryProgress(percent);
       },
       onEnd: () => {
+        storyPlayingRef.current = false;
         setStoryPlaying(false);
         setStoryCompleted(true);
         setCurrentScene(null);
@@ -473,7 +490,7 @@ export function SimProvider({ children }: { children: React.ReactNode }) {
     };
   }, []);
 
-  const mode = useMemo(() => modeOf(state), [state.gridLive, state.heatwave]);
+  const mode = useMemo(() => modeOf(state), [state]);
 
   const story: StoryState = useMemo(
     () => ({

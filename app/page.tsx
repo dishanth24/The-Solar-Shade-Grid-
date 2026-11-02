@@ -17,6 +17,8 @@ import { VoiceNotificationCenter } from "@/components/VoiceNotificationCenter";
 import { Tabs, TabsList, TabsTrigger, TabsContent } from "@/components/ui/tabs";
 import { useSim } from "@/lib/sim-context";
 import { AnimatedNumber } from "@/components/AnimatedNumber";
+import { InstallTab } from "@/components/InstallTab";
+import { LiveMathTab } from "@/components/LiveMathTab";
 import {
   Activity,
   ShieldCheck,
@@ -205,12 +207,9 @@ export default function Home() {
                       </h2>
                     </div>
                     <div className="flex items-center gap-2">
-                      <div className="flex items-center gap-1.5 text-[10px] font-semibold text-green">
-                        <span className="relative flex h-1.5 w-1.5">
-                          <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-green opacity-75"></span>
-                          <span className="relative inline-flex rounded-full h-1.5 w-1.5 bg-green"></span>
-                        </span>
-                        <span>synced</span>
+                      <div className="flex items-center gap-1.5 text-[10px] font-semibold text-muted-foreground">
+                        <span className="inline-flex rounded-full h-1.5 w-1.5 bg-muted-foreground/60"></span>
+                        <span>local</span>
                       </div>
                       <span className="text-[10px] font-mono font-bold px-1.5 py-0.5 rounded bg-secondary text-foreground">
                         Pool: ₹<AnimatedNumber value={Math.round(state.coopPool)} />
