@@ -1,0 +1,148 @@
+/**
+ * lib/vendor-registry.ts
+ * Hardcoded vendor registry for the Solar Shade Grid demo.
+ * In production this would be backed by Supabase. For the hackathon demo,
+ * all 5 vendors use the DEMO_PHONE number from env, defaulting to a placeholder.
+ */
+
+import type { ProduceCategory } from "./produce-engine";
+
+export interface VendorProfile {
+  vendorId: string;
+  stallId: string; // s1–s8
+  stallName: string;
+  vendorName: string;
+  produceCategories: ProduceCategory[];
+  /** E.164 phone number. Falls back to DEMO_PHONE env. */
+  phone: string;
+  preferredLanguage: "kn" | "hi";
+  whatsappEnabled: boolean;
+  smsEnabled: boolean;
+  voiceConsentGiven: boolean;
+  optedOut: boolean;
+  lastAlertSent?: string; // ISO timestamp — used for cooldown
+  lastAlertId?: string;
+}
+
+// ---------------------------------------------------------------------------
+// Demo registry — 5 vendors mirroring stalls in the 3D twin
+// All phone fields use the DEMO_PHONE env var at runtime via getVendorPhone()
+// Languages strictly configured for Kannada (kn-IN) and Hindi (hi-IN)
+// ---------------------------------------------------------------------------
+
+export const VENDOR_REGISTRY: VendorProfile[] = [
+  {
+    vendorId: "v-001",
+    stallId: "s1",
+    stallName: "Stall 1 — Tomato Corner",
+    vendorName: "Priya Nair",
+    produceCategories: ["tomato"],
+    phone: "+910000000001", // replaced at runtime
+    preferredLanguage: "kn",
+    whatsappEnabled: true,
+    smsEnabled: true,
+    voiceConsentGiven: true,
+    optedOut: false,
+  },
+  {
+    vendorId: "v-002",
+    stallId: "s2",
+    stallName: "Stall 2 — Apple Bazaar",
+    vendorName: "Rajan Mehta",
+    produceCategories: ["apple"],
+    phone: "+910000000002",
+    preferredLanguage: "hi",
+    whatsappEnabled: true,
+    smsEnabled: true,
+    voiceConsentGiven: true,
+    optedOut: false,
+  },
+  {
+    vendorId: "v-003",
+    stallId: "s4",
+    stallName: "Stall 4 — Greens Hub",
+    vendorName: "Lakshmi Devi",
+    produceCategories: ["leafy"],
+    phone: "+910000000003",
+    preferredLanguage: "kn",
+    whatsappEnabled: false,
+    smsEnabled: true,
+    voiceConsentGiven: true,
+    optedOut: false,
+  },
+  {
+    vendorId: "v-004",
+    stallId: "s6",
+    stallName: "Stall 6 — Root Cellar",
+    vendorName: "Suresh Kumar",
+    produceCategories: ["potato"],
+    phone: "+910000000004",
+    preferredLanguage: "hi",
+    whatsappEnabled: true,
+    smsEnabled: true,
+    voiceConsentGiven: true,
+    optedOut: false,
+  },
+  {
+    vendorId: "v-005",
+    stallId: "s7",
+    stallName: "Stall 7 — Mixed Produce",
+    vendorName: "Anitha Rao",
+    produceCategories: ["tomato", "leafy"],
+    phone: "+910000000005",
+    preferredLanguage: "kn",
+    whatsappEnabled: true,
+    smsEnabled: true,
+    voiceConsentGiven: false,
+    optedOut: false,
+  },
+];
+
+/** Returns the effective phone number for a vendor.
+ *  For demo: always uses DEMO_PHONE env if set, preserving E.164 format. */
+export function getVendorPhone(vendor: VendorProfile): string {
+  if (typeof process !== "undefined") {
+    const demo = process.env.DEMO_PHONE;
+    if (demo && demo.startsWith("+")) return demo;
+  }
+  return vendor.phone;
+}
+
+/** Lookup vendor by stallId + produceCategory. */
+export function findVendor(
+  stallId: string,
+  category?: ProduceCategory
+): VendorProfile | undefined {
+  return VENDOR_REGISTRY.find(
+    (v) =>
+      v.stallId === stallId &&
+      (!category || v.produceCategories.includes(category))
+  );
+}
+
+/** Lookup vendor by vendorId. */
+export function getVendorById(vendorId: string): VendorProfile | undefined {
+  return VENDOR_REGISTRY.find((v) => v.vendorId === vendorId);
+}
+
+/** Mark alert sent — mutates in-memory registry (demo only). */
+export function markAlertSent(vendorId: string, alertId: string): void {
+  const v = VENDOR_REGISTRY.find((v) => v.vendorId === vendorId);
+  if (v) {
+    v.lastAlertSent = new Date().toISOString();
+    v.lastAlertId = alertId;
+  }
+}
+
+/** Update vendor preferred language (runtime demo setting). */
+export function updateVendorLanguage(
+  vendorId: string,
+  preferredLanguage: "kn" | "hi"
+): boolean {
+  const v = VENDOR_REGISTRY.find((v) => v.vendorId === vendorId);
+  if (v) {
+    v.preferredLanguage = preferredLanguage;
+    return true;
+  }
+  return false;
+}

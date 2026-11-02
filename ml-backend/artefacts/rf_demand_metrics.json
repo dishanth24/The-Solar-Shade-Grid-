@@ -1,0 +1,25 @@
+{
+  "model": "Random Forest",
+  "task": "Market Demand Forecast (t+1)",
+  "mae": 0.2509,
+  "rmse": 0.5375,
+  "r2": 0.8832,
+  "mape": 8.08,
+  "feature_importances": {
+    "market_activity_index": 0.9072,
+    "hour_cos": 0.0335,
+    "hour_sin": 0.0144,
+    "demand_lag_2": 0.0076,
+    "demand_lag_4": 0.007,
+    "demand_lag_1": 0.0069,
+    "demand_rolling_mean_4": 0.006,
+    "relative_humidity_2m": 0.0058,
+    "temperature_2m": 0.0041,
+    "apparent_temperature": 0.0041,
+    "day_of_week": 0.0019,
+    "active_stalls": 0.0008,
+    "is_weekend": 0.0006,
+    "grid_live": 0.0002,
+    "heatwave": 0.0
+  }
+}

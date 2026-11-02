@@ -1,0 +1,25 @@
+{
+  "model": "XGBoost",
+  "task": "Solar Generation Forecast (t+1)",
+  "mae": 0.0586,
+  "rmse": 0.105,
+  "r2": 0.998,
+  "mape": 4.74,
+  "feature_importances": {
+    "shortwave_radiation": 0.6322,
+    "hour_cos": 0.3237,
+    "solar_gen_lag_1": 0.0205,
+    "hour_sin": 0.0095,
+    "rad_lag_1": 0.0072,
+    "rad_rolling_mean_4": 0.0023,
+    "solar_gen_lag_4": 0.002,
+    "temperature_2m": 0.0009,
+    "solar_gen_lag_2": 0.0008,
+    "month_sin": 0.0002,
+    "month_cos": 0.0002,
+    "cloud_cover": 0.0002,
+    "wind_speed_10m": 0.0001,
+    "relative_humidity_2m": 0.0001,
+    "is_weekend": 0.0
+  }
+}

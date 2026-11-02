@@ -4,25 +4,35 @@ import React, { useState } from "react";
 import { TopBar } from "@/components/TopBar";
 import { Sidebar } from "@/components/Sidebar";
 import { MarketMap } from "@/components/MarketMap";
+import { Market3DCanvas } from "@/components/digital-twin/Market3DCanvas";
+import { ComponentInspector, SelectedComponent } from "@/components/ComponentInspector";
 import { PowerChart } from "@/components/PowerChart";
 import { StoryOverlay } from "@/components/StoryOverlay";
 import { SmsPreview } from "@/components/SmsPreview";
 import { LogTerminal } from "@/components/LogTerminal";
+import { WeatherIntelligence } from "@/components/WeatherIntelligence";
+import { ProduceFreshness } from "@/components/ProduceFreshness";
+import { AiEnergyAnalyst } from "@/components/AiEnergyAnalyst";
+import { VoiceNotificationCenter } from "@/components/VoiceNotificationCenter";
 import { Tabs, TabsList, TabsTrigger, TabsContent } from "@/components/ui/tabs";
 import { useSim } from "@/lib/sim-context";
 import { AnimatedNumber } from "@/components/AnimatedNumber";
 import {
   Activity,
-  Terminal,
-  Layers,
-  Calculator,
   ShieldCheck,
-  SunMedium,
   TrendingUp,
+  CloudSun,
+  Leaf,
+  Bot,
+  Box,
+  MapPin,
+  Mic,
 } from "lucide-react";
 
 export default function Home() {
   const [activeTab, setActiveTab] = useState("dashboard");
+  const [viewMode, setViewMode] = useState<"3d" | "2d">("3d");
+  const [selectedComponent, setSelectedComponent] = useState<SelectedComponent | null>(null);
   const { state } = useSim();
 
   return (
@@ -48,22 +58,36 @@ export default function Home() {
                   value="dashboard"
                   className="text-xs font-semibold px-3 py-1 data-active:bg-card data-active:shadow-xs"
                 >
-                  <Activity className="w-3.5 h-3.5 mr-1.5 text-teal dark:text-amber" />
-                  Dashboard
+                  <Activity className="w-3.5 h-3.5 mr-1.5 text-teal dark:text-cyan-400" />
+                  3D Digital Twin
                 </TabsTrigger>
                 <TabsTrigger
-                  value="install"
+                  value="produce"
                   className="text-xs font-semibold px-3 py-1 data-active:bg-card data-active:shadow-xs"
                 >
-                  <Layers className="w-3.5 h-3.5 mr-1.5 text-teal dark:text-amber" />
-                  How it&apos;s installed
+                  <Leaf className="w-3.5 h-3.5 mr-1.5 text-green" />
+                  Produce Freshness
                 </TabsTrigger>
                 <TabsTrigger
-                  value="math"
+                  value="weather"
                   className="text-xs font-semibold px-3 py-1 data-active:bg-card data-active:shadow-xs"
                 >
-                  <Calculator className="w-3.5 h-3.5 mr-1.5 text-teal dark:text-amber" />
-                  Live Math
+                  <CloudSun className="w-3.5 h-3.5 mr-1.5 text-teal dark:text-cyan-400" />
+                  Weather Intelligence
+                </TabsTrigger>
+                <TabsTrigger
+                  value="ai-analyst"
+                  className="text-xs font-semibold px-3 py-1 data-active:bg-card data-active:shadow-xs"
+                >
+                  <Bot className="w-3.5 h-3.5 mr-1.5 text-teal dark:text-cyan-400" />
+                  AI Energy Analyst
+                </TabsTrigger>
+                <TabsTrigger
+                  value="voice"
+                  className="text-xs font-semibold px-3 py-1 data-active:bg-card data-active:shadow-xs"
+                >
+                  <Mic className="w-3.5 h-3.5 mr-1.5 text-purple" />
+                  Voice AI
                 </TabsTrigger>
               </TabsList>
 
@@ -76,26 +100,69 @@ export default function Home() {
               </div>
             </div>
 
-            {/* TAB 1: DASHBOARD */}
+            {/* TAB 1: 3D DIGITAL TWIN DASHBOARD */}
             <TabsContent
               value="dashboard"
               className="flex-1 flex flex-col gap-2 min-h-0 overflow-hidden mt-0 data-[state=inactive]:hidden"
             >
               {/* Upper Section: Centre Column + Right Column */}
               <div className="flex-1 flex gap-2 min-h-0 overflow-hidden">
-                {/* Centre Column: Top (MarketMap) + Bottom (PowerChart) */}
+                {/* Centre Column: Hero Twin Canvas + PowerChart */}
                 <div className="flex-1 flex flex-col gap-2 min-w-0 min-h-0">
-                  {/* Centre Top: MarketMap SVG with StoryOverlay */}
-                  <div className="relative w-full rounded-xl border border-border bg-card overflow-hidden shadow-xs transition-colors duration-700 shrink-0">
+                  {/* Hero Canvas Card */}
+                  <div className="relative flex-1 min-h-[300px] rounded-xl border border-border bg-card overflow-hidden shadow-xs transition-colors duration-700">
                     <StoryOverlay />
-                    <MarketMap />
+
+                    {/* View Switcher Pill */}
+                    <div className="absolute top-3 right-3 z-20 flex items-center p-0.5 rounded-lg bg-card/85 backdrop-blur-md border border-border shadow-md">
+                      <button
+                        onClick={() => setViewMode("3d")}
+                        className={`flex items-center gap-1 px-2.5 py-1 rounded-md text-[11px] font-medium transition-colors ${
+                          viewMode === "3d"
+                            ? "bg-teal text-white shadow-xs"
+                            : "text-muted-foreground hover:text-foreground"
+                        }`}
+                      >
+                        <Box className="w-3.5 h-3.5" />
+                        <span>3D Twin</span>
+                      </button>
+                      <button
+                        onClick={() => setViewMode("2d")}
+                        className={`flex items-center gap-1 px-2.5 py-1 rounded-md text-[11px] font-medium transition-colors ${
+                          viewMode === "2d"
+                            ? "bg-teal text-white shadow-xs"
+                            : "text-muted-foreground hover:text-foreground"
+                        }`}
+                      >
+                        <MapPin className="w-3.5 h-3.5" />
+                        <span>2D Map</span>
+                      </button>
+                    </div>
+
+                    {/* 3D Canvas or 2D Schematic */}
+                    {viewMode === "3d" ? (
+                      <Market3DCanvas
+                        onSelectComponent={setSelectedComponent}
+                        selectedComponent={selectedComponent}
+                      />
+                    ) : (
+                      <div className="w-full h-full flex items-center justify-center p-2 bg-[#081C20]/20">
+                        <MarketMap />
+                      </div>
+                    )}
+
+                    {/* Component Inspector Dock */}
+                    <ComponentInspector
+                      selected={selectedComponent}
+                      onClose={() => setSelectedComponent(null)}
+                    />
                   </div>
 
                   {/* Centre Bottom: PowerChart */}
-                  <div className="flex-1 min-h-0 rounded-xl border border-border bg-card p-3 flex flex-col justify-between shadow-xs transition-colors duration-700">
+                  <div className="h-44 shrink-0 rounded-xl border border-border bg-card p-3 flex flex-col justify-between shadow-xs transition-colors duration-700">
                     <div className="flex items-center justify-between shrink-0">
                       <div className="flex items-center gap-2">
-                        <TrendingUp className="w-4 h-4 text-teal dark:text-amber" />
+                        <TrendingUp className="w-4 h-4 text-teal dark:text-cyan-400" />
                         <h2 className="font-serif text-sm font-bold text-foreground">
                           Power Flow: Generation vs Demand
                         </h2>
@@ -109,7 +176,7 @@ export default function Home() {
                           Solar Gen: {(state.last?.genKw ?? 0).toFixed(1)} kW
                         </span>
                         <span className="flex items-center gap-1.5 text-foreground">
-                          <span className="w-2.5 h-2.5 rounded-full bg-teal inline-block"></span>
+                          <span className="w-2.5 h-2.5 rounded-full bg-teal dark:bg-cyan-400 inline-block"></span>
                           Total Demand: {(state.last?.demandKw ?? 0).toFixed(1)} kW
                         </span>
                       </div>
@@ -153,7 +220,7 @@ export default function Home() {
 
                   {/* 8 Stall Cards in 2x4 Grid driven by useSim */}
                   <div className="flex-1 grid grid-cols-2 grid-rows-4 gap-1.5 min-h-0">
-                    {state.stalls.map((stall) => {
+                    {state.stalls.map((stall, idx) => {
                       const statusColor =
                         stall.status === "ok"
                           ? "bg-green/10 text-green border-green/30"
@@ -164,7 +231,15 @@ export default function Home() {
                       return (
                         <div
                           key={stall.id}
-                          className="rounded-lg border border-border bg-card p-2 flex flex-col justify-between shadow-xs hover:border-teal/40 transition-all min-h-0"
+                          onClick={() =>
+                            setSelectedComponent({
+                              type: "stall",
+                              id: `stall_${idx}`,
+                              name: stall.name,
+                              stallIndex: idx,
+                            })
+                          }
+                          className="rounded-lg border border-border bg-card p-2 flex flex-col justify-between shadow-xs hover:border-teal/40 cursor-pointer transition-all min-h-0"
                         >
                           <div className="flex items-center justify-between leading-none">
                             <span className="text-xs font-bold text-foreground truncate">
@@ -207,124 +282,40 @@ export default function Home() {
                 </div>
               </div>
 
-              {/* Lower Section: Bottom Strip (150 px) Log Terminal */}
+              {/* Lower Section: Bottom Strip Log Terminal */}
               <LogTerminal />
             </TabsContent>
 
-            {/* TAB 2: HOW IT'S INSTALLED */}
+            {/* TAB 2: PRODUCE FRESHNESS INTELLIGENCE */}
             <TabsContent
-              value="install"
-              className="flex-1 rounded-xl border border-border bg-card p-6 shadow-xs min-h-0 overflow-y-auto data-[state=inactive]:hidden"
+              value="produce"
+              className="flex-1 min-h-0 overflow-hidden flex flex-col mt-0 data-[state=inactive]:hidden"
             >
-              <div className="max-w-3xl mx-auto flex flex-col gap-6">
-                <div>
-                  <h2 className="font-serif text-2xl font-bold text-foreground">
-                    How The Solar Shade Grid Is Installed
-                  </h2>
-                  <p className="text-sm text-muted-foreground mt-1">
-                    Five-step rapid deployment over existing market alleyways with zero ground disruption.
-                  </p>
-                </div>
-
-                <div className="grid grid-cols-1 md:grid-cols-5 gap-3">
-                  {[
-                    { step: "1", title: "Frame Anchor", desc: "Modular lightweight steel canopy frame clamped to market stanchions" },
-                    { step: "2", title: "Solar Canopy", desc: "12 kW bifacial solar panels creating continuous cooling shade" },
-                    { step: "3", title: "DC Micro-Bus", desc: "Overhead DC trunk cable routing solar output directly to central hub" },
-                    { step: "4", title: "Central Hub", desc: "20 kWh LiFePO4 battery, hybrid inverter, and communal cold storage unit" },
-                    { step: "5", title: "Stall Plugs", desc: "Weatherproof smart metered vendor drops for misters, fans and lighting" },
-                  ].map((item) => (
-                    <div
-                      key={item.step}
-                      className="p-3.5 rounded-xl border border-border bg-secondary/30 flex flex-col gap-2"
-                    >
-                      <div className="w-6 h-6 rounded-full bg-teal text-paper font-mono text-xs font-bold flex items-center justify-center">
-                        {item.step}
-                      </div>
-                      <h3 className="font-serif text-sm font-bold text-foreground">
-                        {item.title}
-                      </h3>
-                      <p className="text-xs text-muted-foreground">{item.desc}</p>
-                    </div>
-                  ))}
-                </div>
-
-                <div className="p-6 rounded-xl border border-dashed border-border bg-secondary/20 flex flex-col items-center justify-center text-center">
-                  <p className="text-xs font-mono text-muted-foreground">
-                    Interactive SVG Stepper & Component Highlight Diagram (Implemented in P8)
-                  </p>
-                </div>
-              </div>
+              <ProduceFreshness />
             </TabsContent>
 
-            {/* TAB 3: LIVE MATH */}
+            {/* TAB 3: WEATHER INTELLIGENCE */}
             <TabsContent
-              value="math"
-              className="flex-1 rounded-xl border border-border bg-card p-6 shadow-xs min-h-0 overflow-y-auto data-[state=inactive]:hidden"
+              value="weather"
+              className="flex-1 min-h-0 overflow-hidden flex flex-col mt-0 data-[state=inactive]:hidden"
             >
-              <div className="max-w-3xl mx-auto flex flex-col gap-6">
-                <div>
-                  <h2 className="font-serif text-2xl font-bold text-foreground">
-                    Twin Engine: Live Mathematical Validation
-                  </h2>
-                  <p className="text-sm text-muted-foreground mt-1">
-                    Pure, deterministic calculations driving every simulation tick.
-                  </p>
-                </div>
+              <WeatherIntelligence />
+            </TabsContent>
 
-                <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
-                  <div className="p-4 rounded-xl border border-border bg-secondary/30 flex flex-col gap-2">
-                    <span className="text-[10px] font-mono uppercase text-muted-foreground font-bold">
-                      Equation 1
-                    </span>
-                    <h3 className="font-serif text-sm font-bold text-foreground">
-                      Solar Generation
-                    </h3>
-                    <div className="p-2.5 rounded-lg bg-card border border-border font-mono text-xs text-teal dark:text-amber">
-                      P_gen = P_cap × H_sun × η
-                    </div>
-                    <p className="text-xs text-muted-foreground">
-                      Sun factor H_sun peaks at noon; η = 0.82 system efficiency factor.
-                    </p>
-                  </div>
+            {/* TAB 4: AI ENERGY ANALYST */}
+            <TabsContent
+              value="ai-analyst"
+              className="flex-1 min-h-0 overflow-hidden flex flex-col mt-0 data-[state=inactive]:hidden"
+            >
+              <AiEnergyAnalyst />
+            </TabsContent>
 
-                  <div className="p-4 rounded-xl border border-border bg-secondary/30 flex flex-col gap-2">
-                    <span className="text-[10px] font-mono uppercase text-muted-foreground font-bold">
-                      Equation 2
-                    </span>
-                    <h3 className="font-serif text-sm font-bold text-foreground">
-                      Energy Balance & Delta-E
-                    </h3>
-                    <div className="p-2.5 rounded-lg bg-card border border-border font-mono text-xs text-teal dark:text-amber">
-                      ΔE = E_avail - E_demand
-                    </div>
-                    <p className="text-xs text-muted-foreground">
-                      Governs load shedding: if ΔE &lt; 0 or grid is dead, non-critical loads shed.
-                    </p>
-                  </div>
-
-                  <div className="p-4 rounded-xl border border-border bg-secondary/30 flex flex-col gap-2">
-                    <span className="text-[10px] font-mono uppercase text-muted-foreground font-bold">
-                      Equation 3
-                    </span>
-                    <h3 className="font-serif text-sm font-bold text-foreground">
-                      Battery State & Surplus
-                    </h3>
-                    <div className="p-2.5 rounded-lg bg-card border border-border font-mono text-xs text-teal dark:text-amber">
-                      Payout = E_sold × Tariff
-                    </div>
-                    <p className="text-xs text-muted-foreground">
-                      Surplus sold back only when battery SOC ≥ 80%. Virtual rupees split to vendors.
-                    </p>
-                  </div>
-                </div>
-
-                <div className="p-6 rounded-xl border border-dashed border-border bg-secondary/20 flex flex-col items-center justify-center text-center">
-                  <p className="text-xs font-mono text-muted-foreground">
-                    Live parameter substitution banner from state.last (Implemented in P8)
-                  </p>
-                </div>
-              </div>
+            {/* TAB: VOICE AI */}
+            <TabsContent
+              value="voice"
+              className="flex-1 overflow-y-auto min-h-0 mt-0 data-[state=inactive]:hidden p-1"
+            >
+              <VoiceNotificationCenter />
             </TabsContent>
           </Tabs>
         </main>

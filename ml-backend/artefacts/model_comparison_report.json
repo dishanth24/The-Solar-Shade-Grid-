@@ -1,0 +1,93 @@
+{
+  "notice": "Synthetic simulation (synthetic_engine_v2) - not real-world measured performance.",
+  "solar_generation": {
+    "target_variance": 5.5836,
+    "overall": {
+      "xgboost": {
+        "mae": 0.0586,
+        "rmse": 0.105,
+        "r2": 0.998,
+        "mape": 3.24
+      },
+      "persistence": {
+        "mae": 0.1403,
+        "rmse": 0.2335,
+        "r2": 0.9902,
+        "mape": 15.07
+      },
+      "time_of_day_mean": {
+        "mae": 0.0967,
+        "rmse": 0.1767,
+        "r2": 0.9944,
+        "mape": 4.05
+      },
+      "historical_mean": {
+        "mae": 2.175,
+        "rmse": 2.3638,
+        "r2": -0.0007,
+        "mape": 2102.21
+      }
+    },
+    "daytime_only": {
+      "xgboost": {
+        "mae": 0.1178,
+        "rmse": 0.1492,
+        "r2": 0.9931,
+        "mape": 5.03
+      },
+      "persistence": {
+        "mae": 0.2766,
+        "rmse": 0.3277,
+        "r2": 0.9666,
+        "mape": 15.92
+      },
+      "time_of_day_mean": {
+        "mae": 0.195,
+        "rmse": 0.2512,
+        "r2": 0.9804,
+        "mape": 6.91
+      },
+      "historical_mean": {
+        "mae": 2.3128,
+        "rmse": 2.6541,
+        "r2": -1.1926,
+        "mape": 79.8
+      }
+    }
+  },
+  "market_demand": {
+    "target_variance": 2.4737,
+    "overall": {
+      "random_forest": {
+        "mae": 0.2509,
+        "rmse": 0.5375,
+        "r2": 0.8832,
+        "mape": 8.08
+      },
+      "xgboost": {
+        "mae": 0.2534,
+        "rmse": 0.5303,
+        "r2": 0.8863,
+        "mape": 8.26
+      },
+      "persistence": {
+        "mae": 0.4125,
+        "rmse": 0.7997,
+        "r2": 0.7415,
+        "mape": 13.47
+      },
+      "time_of_day_mean": {
+        "mae": 0.2591,
+        "rmse": 0.5422,
+        "r2": 0.8812,
+        "mape": 8.44
+      },
+      "historical_mean": {
+        "mae": 1.3655,
+        "rmse": 1.5728,
+        "r2": -0.0,
+        "mape": 62.13
+      }
+    }
+  }
+}
