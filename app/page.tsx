@@ -11,13 +11,13 @@ import { LogTerminal } from "@/components/LogTerminal";
 import { Tabs, TabsList, TabsTrigger, TabsContent } from "@/components/ui/tabs";
 import { useSim } from "@/lib/sim-context";
 import { AnimatedNumber } from "@/components/AnimatedNumber";
+import { InstallTab } from "@/components/InstallTab";
+import { LiveMathTab } from "@/components/LiveMathTab";
 import {
   Activity,
-  Terminal,
   Layers,
   Calculator,
   ShieldCheck,
-  SunMedium,
   TrendingUp,
 } from "lucide-react";
 
@@ -138,12 +138,9 @@ export default function Home() {
                       </h2>
                     </div>
                     <div className="flex items-center gap-2">
-                      <div className="flex items-center gap-1.5 text-[10px] font-semibold text-green">
-                        <span className="relative flex h-1.5 w-1.5">
-                          <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-green opacity-75"></span>
-                          <span className="relative inline-flex rounded-full h-1.5 w-1.5 bg-green"></span>
-                        </span>
-                        <span>synced</span>
+                      <div className="flex items-center gap-1.5 text-[10px] font-semibold text-muted-foreground">
+                        <span className="inline-flex rounded-full h-1.5 w-1.5 bg-muted-foreground/60"></span>
+                        <span>local</span>
                       </div>
                       <span className="text-[10px] font-mono font-bold px-1.5 py-0.5 rounded bg-secondary text-foreground">
                         Pool: ₹<AnimatedNumber value={Math.round(state.coopPool)} />
@@ -214,117 +211,17 @@ export default function Home() {
             {/* TAB 2: HOW IT'S INSTALLED */}
             <TabsContent
               value="install"
-              className="flex-1 rounded-xl border border-border bg-card p-6 shadow-xs min-h-0 overflow-y-auto data-[state=inactive]:hidden"
+              className="flex-1 rounded-xl border border-border bg-card p-4 shadow-xs min-h-0 overflow-y-auto data-[state=inactive]:hidden"
             >
-              <div className="max-w-3xl mx-auto flex flex-col gap-6">
-                <div>
-                  <h2 className="font-serif text-2xl font-bold text-foreground">
-                    How The Solar Shade Grid Is Installed
-                  </h2>
-                  <p className="text-sm text-muted-foreground mt-1">
-                    Five-step rapid deployment over existing market alleyways with zero ground disruption.
-                  </p>
-                </div>
-
-                <div className="grid grid-cols-1 md:grid-cols-5 gap-3">
-                  {[
-                    { step: "1", title: "Frame Anchor", desc: "Modular lightweight steel canopy frame clamped to market stanchions" },
-                    { step: "2", title: "Solar Canopy", desc: "12 kW bifacial solar panels creating continuous cooling shade" },
-                    { step: "3", title: "DC Micro-Bus", desc: "Overhead DC trunk cable routing solar output directly to central hub" },
-                    { step: "4", title: "Central Hub", desc: "20 kWh LiFePO4 battery, hybrid inverter, and communal cold storage unit" },
-                    { step: "5", title: "Stall Plugs", desc: "Weatherproof smart metered vendor drops for misters, fans and lighting" },
-                  ].map((item) => (
-                    <div
-                      key={item.step}
-                      className="p-3.5 rounded-xl border border-border bg-secondary/30 flex flex-col gap-2"
-                    >
-                      <div className="w-6 h-6 rounded-full bg-teal text-paper font-mono text-xs font-bold flex items-center justify-center">
-                        {item.step}
-                      </div>
-                      <h3 className="font-serif text-sm font-bold text-foreground">
-                        {item.title}
-                      </h3>
-                      <p className="text-xs text-muted-foreground">{item.desc}</p>
-                    </div>
-                  ))}
-                </div>
-
-                <div className="p-6 rounded-xl border border-dashed border-border bg-secondary/20 flex flex-col items-center justify-center text-center">
-                  <p className="text-xs font-mono text-muted-foreground">
-                    Interactive SVG Stepper & Component Highlight Diagram (Implemented in P8)
-                  </p>
-                </div>
-              </div>
+              <InstallTab />
             </TabsContent>
 
             {/* TAB 3: LIVE MATH */}
             <TabsContent
               value="math"
-              className="flex-1 rounded-xl border border-border bg-card p-6 shadow-xs min-h-0 overflow-y-auto data-[state=inactive]:hidden"
+              className="flex-1 rounded-xl border border-border bg-card p-4 shadow-xs min-h-0 overflow-y-auto data-[state=inactive]:hidden"
             >
-              <div className="max-w-3xl mx-auto flex flex-col gap-6">
-                <div>
-                  <h2 className="font-serif text-2xl font-bold text-foreground">
-                    Twin Engine: Live Mathematical Validation
-                  </h2>
-                  <p className="text-sm text-muted-foreground mt-1">
-                    Pure, deterministic calculations driving every simulation tick.
-                  </p>
-                </div>
-
-                <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
-                  <div className="p-4 rounded-xl border border-border bg-secondary/30 flex flex-col gap-2">
-                    <span className="text-[10px] font-mono uppercase text-muted-foreground font-bold">
-                      Equation 1
-                    </span>
-                    <h3 className="font-serif text-sm font-bold text-foreground">
-                      Solar Generation
-                    </h3>
-                    <div className="p-2.5 rounded-lg bg-card border border-border font-mono text-xs text-teal dark:text-amber">
-                      P_gen = P_cap × H_sun × η
-                    </div>
-                    <p className="text-xs text-muted-foreground">
-                      Sun factor H_sun peaks at noon; η = 0.82 system efficiency factor.
-                    </p>
-                  </div>
-
-                  <div className="p-4 rounded-xl border border-border bg-secondary/30 flex flex-col gap-2">
-                    <span className="text-[10px] font-mono uppercase text-muted-foreground font-bold">
-                      Equation 2
-                    </span>
-                    <h3 className="font-serif text-sm font-bold text-foreground">
-                      Energy Balance & Delta-E
-                    </h3>
-                    <div className="p-2.5 rounded-lg bg-card border border-border font-mono text-xs text-teal dark:text-amber">
-                      ΔE = E_avail - E_demand
-                    </div>
-                    <p className="text-xs text-muted-foreground">
-                      Governs load shedding: if ΔE &lt; 0 or grid is dead, non-critical loads shed.
-                    </p>
-                  </div>
-
-                  <div className="p-4 rounded-xl border border-border bg-secondary/30 flex flex-col gap-2">
-                    <span className="text-[10px] font-mono uppercase text-muted-foreground font-bold">
-                      Equation 3
-                    </span>
-                    <h3 className="font-serif text-sm font-bold text-foreground">
-                      Battery State & Surplus
-                    </h3>
-                    <div className="p-2.5 rounded-lg bg-card border border-border font-mono text-xs text-teal dark:text-amber">
-                      Payout = E_sold × Tariff
-                    </div>
-                    <p className="text-xs text-muted-foreground">
-                      Surplus sold back only when battery SOC ≥ 80%. Virtual rupees split to vendors.
-                    </p>
-                  </div>
-                </div>
-
-                <div className="p-6 rounded-xl border border-dashed border-border bg-secondary/20 flex flex-col items-center justify-center text-center">
-                  <p className="text-xs font-mono text-muted-foreground">
-                    Live parameter substitution banner from state.last (Implemented in P8)
-                  </p>
-                </div>
-              </div>
+              <LiveMathTab />
             </TabsContent>
           </Tabs>
         </main>
