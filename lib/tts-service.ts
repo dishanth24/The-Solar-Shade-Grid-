@@ -66,6 +66,37 @@ export function getVoiceConfig(language: TtsLanguage): VoiceModelConfig {
 }
 
 /**
+ * Detect language directly from text's Unicode script.
+ *  - Devanagari (U+0900–U+097F) -> "hi" (Hindi)
+ *  - Kannada (U+0C80–U+0CFF) -> "kn" (Kannada)
+ *  - Latin (A-Z, a-z) -> "en" (English)
+ */
+export function detectScriptFromText(text: string): TtsLanguage | null {
+  if (!text || !text.trim()) return null;
+
+  let devanagari = 0;
+  let kannada = 0;
+  let latin = 0;
+
+  for (const ch of text) {
+    const cp = ch.codePointAt(0) ?? 0;
+    if (cp >= 0x0900 && cp <= 0x097F) devanagari++;
+    else if (cp >= 0x0C80 && cp <= 0x0CFF) kannada++;
+    else if ((cp >= 0x41 && cp <= 0x5A) || (cp >= 0x61 && cp <= 0x7A)) latin++;
+  }
+
+  const total = devanagari + kannada + latin;
+  if (total === 0) return null;
+
+  // Strict check: if any Indic script is present, choose whichever has more
+  if (devanagari > 0 && devanagari >= kannada) return "hi";
+  if (kannada > 0 && kannada > devanagari) return "kn";
+  if (latin > 0 && devanagari === 0 && kannada === 0) return "en";
+
+  return null;
+}
+
+/**
  * Builds SSML with natural conversational pauses between sentences and clauses.
  */
 export function buildSsml(cleanText: string, language: TtsLanguage): string {
@@ -177,16 +208,27 @@ async function fetchGoogleNativeSpeech(
  */
 export async function synthesise(
   rawText: string,
-  language: TtsLanguage = "kn",
+  language?: TtsLanguage,
   _useSsml = true
 ): Promise<Buffer | null> {
   if (!rawText || !rawText.trim()) {
     return generateFallbackMp3();
   }
 
-  const normalizedText = normalizeForSpeech(rawText, language);
+  // Requirement 8: Audio generation strictly adheres to the language of the AI response text.
+  // Devanagari Hindi text will ALWAYS synthesize in Hindi (hi-IN / tl=hi).
+  // Kannada script text will ALWAYS synthesize in Kannada (kn-IN / tl=kn).
+  // English text will ALWAYS synthesize in English (en-IN / tl=en).
+  const detectedScript = detectScriptFromText(rawText);
+  const effectiveLang: TtsLanguage = detectedScript ?? language ?? "hi";
+
+  const normalizedText = normalizeForSpeech(rawText, effectiveLang);
   const langCode: "hi" | "kn" | "en" =
-    language === "hi" ? "hi" : language === "kn" ? "kn" : "en";
+    effectiveLang === "hi" ? "hi" : effectiveLang === "kn" ? "kn" : "en";
+
+  console.log(
+    `[TTS Service] Synthesising ${rawText.length} chars | ParamLang: ${language ?? "none"} | DetectedScript: ${detectedScript ?? "none"} | Locale: ${langCode}`
+  );
 
   // Synthesize with Google's native speech engine
   const audioBuffer = await fetchGoogleNativeSpeech(normalizedText, langCode);

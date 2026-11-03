@@ -3,22 +3,22 @@
  * POST — Twilio incoming WhatsApp message webhook.
  *
  * Full Dual-Channel Conversational Voice AI Pipeline:
- * Stage 1: Request parsing, credentials verification & Twilio signature validation
+ * Stage 1: Request parsing (casing-resilient & URL-decoded) & credentials verification
  * Stage 2: Vendor lookup & live evidence-based sensor reading calculation (Produce Engine)
- * Stage 3: Media fetch (307 redirect handling) → transcription → language detection
- * Stage 4: Gemini response generated in the DETECTED language (not vendor default)
- * Stage 5: Native TTS synthesis in the DETECTED language locale
- * Stage 6: Twilio WhatsApp audio + text fallback dispatch
- *
- * Language Detection:
- *   Primary: Unicode script-range heuristic — fast, free, no API needed.
- *   Secondary: Gemini language identification for ambiguous / mixed-script inputs.
- *   Fallback: vendor.preferredLanguage used ONLY when detection confidence is below threshold.
+ * Stage 3: Media fetch (307 redirect protection) → Transcription (native script) → Language Detection
+ * Stage 4: Gemini AI response generation in the DETECTED language
+ * Stage 5: AI response script verification & Native TTS synthesis in matching locale (hi-IN, kn-IN, en-IN)
+ * Stage 6: Twilio WhatsApp dispatch (audio message with resilient text fallback)
  */
 
 import twilio from "twilio";
 import { matchVendorByPhone } from "@/lib/vendor-registry";
-import { synthesise, buildAudioToken, globalAudioStore } from "@/lib/tts-service";
+import {
+  synthesise,
+  buildAudioToken,
+  globalAudioStore,
+  detectScriptFromText,
+} from "@/lib/tts-service";
 import type { TtsLanguage } from "@/lib/tts-service";
 import { audioStore } from "@/app/api/voice/alert/route";
 import { simulateSensors, assessFreshness } from "@/lib/produce-engine";
@@ -85,13 +85,12 @@ async function fetchTwilioMedia(
 
 interface LangDetectResult {
   lang: TtsLanguage;
-  method: "unicode_heuristic" | "gemini_classification" | "vendor_fallback";
+  method: "unicode_script" | "hinglish_keywords" | "gemini_ai" | "fallback";
   confidence: "high" | "medium" | "low";
 }
 
 /**
  * Counts characters belonging to each Unicode script block in the text.
- * Returns character counts for Devanagari, Kannada, and Latin ranges.
  */
 function countScriptChars(text: string): { devanagari: number; kannada: number; latin: number; total: number } {
   let devanagari = 0;
@@ -104,7 +103,7 @@ function countScriptChars(text: string): { devanagari: number; kannada: number; 
     if (cp >= 0x0900 && cp <= 0x097F) devanagari++;
     // Kannada: U+0C80–U+0CFF
     else if (cp >= 0x0C80 && cp <= 0x0CFF) kannada++;
-    // Basic Latin + Latin-1: A–Z, a–z
+    // Latin: A–Z, a–z
     else if ((cp >= 0x41 && cp <= 0x5A) || (cp >= 0x61 && cp <= 0x7A)) latin++;
   }
 
@@ -113,36 +112,57 @@ function countScriptChars(text: string): { devanagari: number; kannada: number; 
 }
 
 /**
- * Fast, free, zero-API language detection using Unicode script ranges.
- * Returns null when confidence is too low (< THRESHOLD) to be sure.
+ * Robust language detection from text content.
+ * 1. Checks Unicode script counts (Devanagari -> "hi", Kannada -> "kn", Latin -> "en").
+ * 2. Checks Romanized Hindi / Kannada keywords if Latin script is used.
  */
-function detectByUnicode(text: string): { lang: TtsLanguage; confidence: "high" | "medium" } | null {
-  if (!text || text.trim().length < 3) return null;
+function detectByUnicodeOrKeywords(text: string): { lang: TtsLanguage; method: "unicode_script" | "hinglish_keywords"; confidence: "high" | "medium" } | null {
+  if (!text || !text.trim()) return null;
 
   const { devanagari, kannada, latin, total } = countScriptChars(text);
-  if (total < 3) return null;
+  if (total === 0) return null;
 
-  const devanagariRatio = devanagari / total;
-  const kannadaRatio = kannada / total;
-  const latinRatio = latin / total;
+  // Strict check: if Devanagari is present and predominant -> HINDI
+  if (devanagari > 0 && devanagari >= kannada) {
+    return { lang: "hi", method: "unicode_script", confidence: "high" };
+  }
 
-  // High-confidence detection (dominant script > 60%)
-  if (devanagariRatio >= 0.6) return { lang: "hi", confidence: "high" };
-  if (kannadaRatio >= 0.6) return { lang: "kn", confidence: "high" };
-  if (latinRatio >= 0.6 && devanagari === 0 && kannada === 0) return { lang: "en", confidence: "high" };
+  // If Kannada script is present and predominant -> KANNADA
+  if (kannada > 0 && kannada > devanagari) {
+    return { lang: "kn", method: "unicode_script", confidence: "high" };
+  }
 
-  // Medium-confidence (plurality winner > 30%)
-  const max = Math.max(devanagari, kannada, latin);
-  if (max === devanagari && devanagariRatio >= 0.3) return { lang: "hi", confidence: "medium" };
-  if (max === kannada && kannadaRatio >= 0.3) return { lang: "kn", confidence: "medium" };
-  if (max === latin && latinRatio >= 0.3 && devanagari === 0 && kannada === 0) return { lang: "en", confidence: "medium" };
+  // If Latin script: check for Romanized Hindi / Kannada keywords before defaulting to English
+  if (latin > 0 && devanagari === 0 && kannada === 0) {
+    const lower = text.toLowerCase();
+    const hindiKeywords = [
+      "namaste", "namaskar", "kya", "kaise", "kaisi", "mera", "mere", "meri",
+      "aap", "aapka", "karo", "karna", "tamatar", "taza", "garam", "shukriya",
+      "thik", "theek", "batao", "bataiye", "sabzi", "sabji", "dukan", "kitna"
+    ];
+    const kannadaKeywords = [
+      "namaskara", "hegide", "hegidhe", "namma", "thampaada", "keli", "maadi",
+      "yenu", "enu", "tumba", "dhanyavada", "malige", "tumba", "beku"
+    ];
+
+    const isHinglish = hindiKeywords.some((w) => new RegExp(`\\b${w}\\b`, "i").test(lower));
+    const isKanglish = kannadaKeywords.some((w) => new RegExp(`\\b${w}\\b`, "i").test(lower));
+
+    if (isHinglish && !isKanglish) {
+      return { lang: "hi", method: "hinglish_keywords", confidence: "medium" };
+    }
+    if (isKanglish && !isHinglish) {
+      return { lang: "kn", method: "hinglish_keywords", confidence: "medium" };
+    }
+
+    return { lang: "en", method: "unicode_script", confidence: "high" };
+  }
 
   return null;
 }
 
 /**
- * Asks Gemini to identify the language of a short transcript.
- * Used only when Unicode heuristic is inconclusive.
+ * Gemini classification for ambiguous short text when Unicode heuristics are inconclusive.
  */
 async function detectByGemini(
   transcript: string,
@@ -159,9 +179,7 @@ async function detectByGemini(
           role: "user",
           parts: [
             {
-              text: `Identify the primary language of this text. Reply with ONLY one word: "hindi", "kannada", or "english". No explanation.
-
-Text: "${transcript.slice(0, 300)}"`,
+              text: `Identify the primary language of this message. Reply with ONLY one word: "hindi", "kannada", or "english".\n\nText: "${transcript.slice(0, 300)}"`,
             },
           ],
         },
@@ -178,65 +196,28 @@ Text: "${transcript.slice(0, 300)}"`,
 }
 
 /**
- * Detect the language of an incoming transcript.
- * Priority: Unicode heuristic → Gemini classification → vendor default fallback.
+ * Detect the language of an incoming message.
+ * Strict priority: Unicode script -> Hinglish keywords -> Gemini AI -> Safe fallback.
  */
 async function detectLanguage(
   transcript: string,
-  vendorDefault: TtsLanguage,
+  fallbackDefault: TtsLanguage,
   geminiKey: string,
   model: string
 ): Promise<LangDetectResult> {
-  // 1. Unicode heuristic (instant, no cost)
-  const unicodeResult = detectByUnicode(transcript);
-  if (unicodeResult && unicodeResult.confidence === "high") {
-    return {
-      lang: unicodeResult.lang,
-      method: "unicode_heuristic",
-      confidence: "high",
-    };
+  const direct = detectByUnicodeOrKeywords(transcript);
+  if (direct) {
+    return direct;
   }
 
-  // 2. Medium-confidence unicode + optional Gemini confirmation
-  if (unicodeResult && unicodeResult.confidence === "medium") {
-    // Accept medium confidence without spending a Gemini call unless it's ambiguous
-    // (latin-heavy text could be English or romanized; others are reliable at medium)
-    if (unicodeResult.lang !== "en") {
-      return {
-        lang: unicodeResult.lang,
-        method: "unicode_heuristic",
-        confidence: "medium",
-      };
-    }
-  }
-
-  // 3. Gemini classification for ambiguous text
   if (geminiKey && transcript.length > 5) {
     const geminiLang = await detectByGemini(transcript, geminiKey, model);
     if (geminiLang) {
-      return {
-        lang: geminiLang,
-        method: "gemini_classification",
-        confidence: "medium",
-      };
+      return { lang: geminiLang, method: "gemini_ai", confidence: "medium" };
     }
   }
 
-  // 4. Accept medium-confidence English if available
-  if (unicodeResult) {
-    return {
-      lang: unicodeResult.lang,
-      method: "unicode_heuristic",
-      confidence: "low",
-    };
-  }
-
-  // 5. Fall back to vendor registered language
-  return {
-    lang: vendorDefault,
-    method: "vendor_fallback",
-    confidence: "low",
-  };
+  return { lang: fallbackDefault, method: "fallback", confidence: "low" };
 }
 
 // ── Localized Fallback Responses ───────────────────────────────────────────────
@@ -249,14 +230,14 @@ function getIntelligentFallback(
   stallHumid: number,
   lang: TtsLanguage
 ): string {
-  if (lang === "kn") {
-    return `ನಮಸ್ಕಾರ ${vendorName} ಅವರೇ, ಸೋಲಾರ್ ಶೇಡ್ ಗ್ರಿಡ್‌ನಿಂದ ನಿಮ್ಮ ${stallName} ತಾಪಮಾನ ${stallTemp.toFixed(1)} ಡಿಗ್ರಿ ಸೆಲ್ಸಿಯಸ್ ಮತ್ತು ತೇವಾಂಶ ${stallHumid.toFixed(0)} ಪ್ರತಿಶತ ಇದೆ. ಸೌರ ಫಲಕಗಳು ಸಮರ್ಪಕವಾಗಿ ಕಾರ್ಯನಿರ್ವಹಿಸುತ್ತಿದ್ದು ತಂಪಾದ ನೆರಳು ಸಿಗುತ್ತಿದೆ. ನಿಮ್ಮ ${produce} ತಾಜಾತನ ಕಾಪಾಡಲು ನೆರಳಿನಲ್ಲಿ ಇರಿಸಿ.`;
-  }
   if (lang === "hi") {
     return `नमस्ते ${vendorName} जी, सोलर शेड ग्रिड से आपकी ${stallName} का तापमान ${stallTemp.toFixed(1)} डिग्री सेल्सियस और नमी ${stallHumid.toFixed(0)} प्रतिशत है। सोलर पैनल सामान्य रूप से काम कर रहे हैं और आपको पूरी छाया मिल रही है। अपनी ${produce} को सुरक्षित रखने के लिए ठंडी जगह पर रखें।`;
   }
+  if (lang === "kn") {
+    return `ನಮಸ್ಕಾರ ${vendorName} ಅವರೇ, ಸೋಲಾರ್ ಶೇಡ್ ಗ್ರಿಡ್‌ನಿಂದ ನಿಮ್ಮ ${stallName} ತಾಪಮಾನ ${stallTemp.toFixed(1)} ಡಿಗ್ರಿ ಸೆಲ್ಸಿಯಸ್ ಮತ್ತು ತೇವಾಂಶ ${stallHumid.toFixed(0)} ಪ್ರತಿಶತ ಇದೆ. ಸೌರ ಫಲಕಗಳು ಸಮರ್ಪಕವಾಗಿ ಕಾರ್ಯನಿರ್ವಹಿಸುತ್ತಿದ್ದು ತಂಪಾದ ನೆರಳು ಸಿಗುತ್ತಿದೆ. ನಿಮ್ಮ ${produce} ತಾಜಾತನ ಕಾಪಾಡಲು ನೆರಳಿನಲ್ಲಿ ಇರಿಸಿ.`;
+  }
   // English
-  return `Hello ${vendorName}, the Solar Shade Grid reports your stall temperature is ${stallTemp.toFixed(1)}°C with ${stallHumid.toFixed(0)}% humidity. The solar canopy is fully operational providing clean energy and cooling shade. Keep your ${produce} in ventilated shade to maintain freshness.`;
+  return `Hello ${vendorName}, the Solar Shade Grid reports your stall temperature is ${stallTemp.toFixed(1)}°C with ${stallHumid.toFixed(0)}% humidity. The solar canopy is providing clean power and cooling shade. Keep your ${produce} in ventilated shade to maintain freshness.`;
 }
 
 // ── Language-Specific Prompt Builders ─────────────────────────────────────────
@@ -273,54 +254,54 @@ function buildGeminiPrompt(
   assessment: { riskLevel: string; summary: string; recommendations: string[] },
   transcript: string
 ): string {
-  const sensorBlock = `EVIDENCE-BASED SENSOR READINGS (use exactly these numbers, never invent others):
+  const sensorBlock = `EVIDENCE-BASED SENSOR READINGS (Strictly adhere to these actual readings, never invent other numbers):
 - Stall Air Temperature: ${stallTempReading.toFixed(1)}°C
 - Stall Relative Humidity: ${stallHumidReading.toFixed(0)}%
 - Produce Surface Contact Temperature: ${contactTempReading.toFixed(1)}°C
-- Solar Canopy Radiation: ${canopySolar} W/m²
-- Freshness Risk: ${assessment.riskLevel} — ${assessment.summary}
-- Recommendation: ${assessment.recommendations[0] ?? "Keep produce in ventilated shade"}`;
+- Solar Canopy Radiation: ${canopySolar} W/m² (Generating clean power & cooling shade)
+- Freshness Assessment: ${assessment.riskLevel} (${assessment.summary})
+- Agricultural Recommendation: ${assessment.recommendations[0] ?? "Keep produce in ventilated shade under solar canopy"}`;
 
-  if (lang === "kn") {
+  if (lang === "hi") {
     return `You are ARIA, the intelligent voice advisor for the Solar Shade Grid market in Bengaluru.
-You are replying to vendor ${vendorName} at ${stallName} (Produce: ${produceList}).
+You are replying directly to vendor ${vendorName} at ${stallName} (Produce: ${produceList}).
 
 ${sensorBlock}
 
-MANDATORY RULES:
-1. Respond in 2–3 spoken sentences in pure Kannada (ಕನ್ನಡ ಲಿಪಿ).
-2. NEVER use English alphabet letters (A–Z) or Romanized Kannada.
-3. Begin with "ನಮಸ್ಕಾರ ${vendorName} ಅವರೇ".
-4. State the stall temperature (${stallTempReading.toFixed(1)} ಡಿಗ್ರಿ) and give one clear protective action.
+MANDATORY LANGUAGE & SCRIPT RULES:
+1. You MUST write your response entirely in pure Devanagari Hindi script (देवनागरी लिपि).
+2. NEVER output English alphabet letters (A-Z) or Romanized Hindi (Hinglish).
+3. Begin with "नमस्ते ${vendorName} जी".
+4. State the stall temperature (${stallTempReading.toFixed(1)} डिग्री सेल्सियस) and give the actionable recommendation in 2 to 3 spoken sentences.
 
 Vendor message: "${transcript}"`;
   }
 
-  if (lang === "hi") {
+  if (lang === "kn") {
     return `You are ARIA, the intelligent voice advisor for the Solar Shade Grid market in Bengaluru.
-You are replying to vendor ${vendorName} at ${stallName} (Produce: ${produceList}).
+You are replying directly to vendor ${vendorName} at ${stallName} (Produce: ${produceList}).
 
 ${sensorBlock}
 
-MANDATORY RULES:
-1. Respond in 2–3 spoken sentences in pure Devanagari Hindi (देवनागरी लिपि).
-2. NEVER use English alphabet letters (A–Z) or Romanized Hindi.
-3. Begin with "नमस्ते ${vendorName} जी".
-4. State the stall temperature (${stallTempReading.toFixed(1)} डिग्री सेल्सियस) and give one clear protective action.
+MANDATORY LANGUAGE & SCRIPT RULES:
+1. You MUST write your response entirely in pure Kannada script (ಕನ್ನಡ ಲಿಪಿ).
+2. NEVER output English alphabet letters (A-Z) or Romanized Kannada (Kanglish).
+3. Begin with "ನಮಸ್ಕಾರ ${vendorName} ಅವರೇ".
+4. State the stall temperature (${stallTempReading.toFixed(1)} ಡಿಗ್ರಿ ಸೆಲ್ಸಿಯಸ್) and give the actionable recommendation in 2 to 3 spoken sentences.
 
 Vendor message: "${transcript}"`;
   }
 
   // English
   return `You are ARIA, the intelligent voice advisor for the Solar Shade Grid market in Bengaluru.
-You are replying to vendor ${vendorName} at ${stallName} (Produce: ${produceList}).
+You are replying directly to vendor ${vendorName} at ${stallName} (Produce: ${produceList}).
 
 ${sensorBlock}
 
-MANDATORY RULES:
-1. Respond in 2–3 concise spoken sentences in clear Indian English.
+MANDATORY LANGUAGE RULES:
+1. Respond in 2 to 3 concise spoken sentences in clear Indian English.
 2. Begin with "Hello ${vendorName}".
-3. State the stall temperature (${stallTempReading.toFixed(1)}°C) and give one actionable protective recommendation.
+3. State the stall temperature (${stallTempReading.toFixed(1)}°C) and provide the actionable recommendation to protect the produce.
 
 Vendor message: "${transcript}"`;
 }
@@ -339,12 +320,24 @@ export async function POST(req: Request) {
     return new Response("Invalid form data", { status: 400 });
   }
 
-  const messageSid = params["MessageSid"] ?? "unknown";
-  const from = params["From"] ?? "";
-  const bodyText = (params["Body"] ?? "").trim();
-  const mediaUrl0 = params["MediaUrl0"] ?? "";
-  const numMedia = parseInt(params["NumMedia"] ?? "0", 10);
-  const mediaContentType0 = params["MediaContentType0"] ?? "";
+  const messageSid = params["MessageSid"] ?? params["messageSid"] ?? "unknown";
+  const from = params["From"] ?? params["from"] ?? "";
+
+  // Robust parameter extraction: handle any parameter casing from Twilio
+  let bodyText = (params["Body"] ?? params["body"] ?? params["text"] ?? params["Message"] ?? "").trim();
+  try {
+    if (bodyText.includes("%")) {
+      bodyText = decodeURIComponent(bodyText).trim();
+    }
+  } catch {
+    // preserve original
+  }
+
+  const mediaUrl0 = params["MediaUrl0"] ?? params["mediaUrl0"] ?? "";
+  const numMedia = parseInt(params["NumMedia"] ?? params["numMedia"] ?? "0", 10);
+  const mediaContentType0 = params["MediaContentType0"] ?? params["mediaContentType0"] ?? "";
+  const isVoiceNote = numMedia > 0 && !!mediaUrl0;
+  const msgType: "voice_note" | "typed_text" = isVoiceNote ? "voice_note" : "typed_text";
 
   // ── Stage 1: Credentials & Signature ──────────────────────────────────────
   const authToken = process.env.TWILIO_AUTH_TOKEN?.trim() ?? "";
@@ -355,14 +348,14 @@ export async function POST(req: Request) {
   const geminiModel = process.env.GEMINI_MODEL ?? "gemini-2.0-flash";
 
   if (sid && !sid.startsWith("AC")) {
-    console.error(`[Stage 1: Config Error] TWILIO_ACCOUNT_SID must begin with 'AC'. Got prefix: ${sid.slice(0, 4)}`);
+    console.error(`[Stage 1: Config Error] TWILIO_ACCOUNT_SID must begin with 'AC'. Got: ${sid.slice(0, 4)}`);
   }
   if (waFrom && !waFrom.startsWith("whatsapp:")) {
     waFrom = `whatsapp:${waFrom}`;
   }
 
   console.log(
-    `[Stage 1: Webhook Received] SID: ${messageSid} | From: ${maskPhone(from)} | NumMedia: ${numMedia} | ContentType: ${mediaContentType0 || "none"} | BodyLength: ${bodyText.length} | BaseURL: ${publicBaseUrl} (${isPublicUrl ? "Public HTTPS" : "Local/HTTP"})`
+    `[Stage 1: Webhook Received] SID: ${messageSid} | From: ${maskPhone(from)} | Type: ${msgType} | NumMedia: ${numMedia} | BodyLength: ${bodyText.length} | BaseURL: ${publicBaseUrl}`
   );
 
   const signature = req.headers.get("x-twilio-signature") ?? "";
@@ -411,23 +404,25 @@ export async function POST(req: Request) {
     (s) => s.sensor_type === "solar_radiation_wm2" && s.stall_id === "canopy"
   )?.value ?? 650;
 
-  console.log(
-    `[Stage 2: Vendor & Sensor] Matched: ${vendor.vendorName} (${vendor.vendorId}) | Stall: ${vendor.stallName} | VendorLang: ${vendorDefaultLang} | Temp: ${stallTempReading}°C | Humid: ${stallHumidReading}% | Risk: ${assessment.riskLevel} | Reason: ${matchReason}`
-  );
-
-  // ── Stage 3: Media Fetch → Transcription → Language Detection ─────────────
+  // ── Stage 3: Transcription (if voice note) & Language Detection ───────────
   let transcript = bodyText;
   let transcriptSource: "body_text" | "audio_gemini" | "audio_fallback" = "body_text";
 
-  if (numMedia > 0 && mediaUrl0) {
-    console.log(`[Stage 3: Media] Voice note detected (${mediaContentType0}). Fetching with 307 redirect protection...`);
+  if (isVoiceNote) {
+    console.log(`[Stage 3: Media] Voice note detected (${mediaContentType0}). Initiating fetch...`);
     const mediaResult = await fetchTwilioMedia(mediaUrl0, sid, authToken);
 
     if (mediaResult && geminiKey) {
-      console.log(
-        `[Stage 3: Media] Audio retrieved: ${mediaResult.buffer.length} bytes (${mediaResult.contentType}). Sending to Gemini for transcription...`
-      );
+      console.log(`[Stage 3: Media] Audio downloaded (${mediaResult.buffer.length} bytes). Transcribing with Gemini...`);
       const cleanMime = mediaResult.contentType.split(";")[0].trim() || "audio/ogg";
+
+      const transcriptionPrompt = `Listen to this WhatsApp voice message from an open-air market vendor.
+Accurately identify whether the speaker is speaking in Hindi (हिन्दी), Kannada (ಕನ್ನಡ), or Indian English.
+Return ONLY the transcription in the speaker's language and authentic native script:
+- If Hindi: write in authentic Devanagari script (देवनागरी).
+- If Kannada: write in authentic Kannada script (ಕನ್ನಡ).
+- If English: write in English text.
+Do NOT translate into English. Do NOT add commentary. Return only the raw spoken words.`;
 
       const transcriptionModels = [
         process.env.GEMINI_MODEL,
@@ -453,16 +448,14 @@ export async function POST(req: Request) {
                       data: mediaResult.buffer.toString("base64"),
                     },
                   },
-                  {
-                    text: "Transcribe this voice message accurately. The speaker may speak Kannada (ಕನ್ನಡ), Hindi (देवनागरी), or Indian English. Return ONLY the transcribed text in its native script — no commentary.",
-                  },
+                  { text: transcriptionPrompt },
                 ],
               },
             ],
           });
           transcribed = result.text?.trim() ?? "";
-          if (transcribed) {
-            console.log(`[Stage 3: Transcription] Model ${m} succeeded: "${transcribed.slice(0, 80)}"`);
+          if (transcribed && transcribed.length > 2) {
+            console.log(`[Stage 3: Transcription] Voice note transcribed via ${m}: "${transcribed.slice(0, 80)}"`);
             break;
           }
         } catch (mErr) {
@@ -474,24 +467,18 @@ export async function POST(req: Request) {
         transcript = transcribed;
         transcriptSource = "audio_gemini";
       } else {
-        console.warn("[Stage 3: Transcription] All models returned empty. Using audio intent fallback.");
-        transcript = "Vendor sent a voice message inquiring about stall freshness and environmental conditions";
+        console.warn("[Stage 3: Transcription] Audio transcription empty. Using voice note fallback.");
+        transcript = "Vendor sent a voice recording inquiring about stall freshness and environmental conditions";
         transcriptSource = "audio_fallback";
       }
     } else if (!mediaResult) {
-      console.warn("[Stage 3: Media] Fetch failed. Using audio intent fallback.");
-      transcript = "Vendor sent a voice message inquiring about stall freshness and environmental conditions";
+      console.warn("[Stage 3: Media] Media fetch failed. Using voice note fallback.");
+      transcript = "Vendor sent a voice recording inquiring about stall freshness and environmental conditions";
       transcriptSource = "audio_fallback";
     }
   }
 
-  // ── Language Detection ─────────────────────────────────────────────────────
-  //
-  // This is the FIX for the reported bug:
-  // Previously lang was pinned to vendor.preferredLanguage and never updated.
-  // Now we detect the actual language of the transcript and use that for
-  // Stages 4 (Gemini) and 5 (TTS) so Hindi voice notes get Hindi replies.
-  //
+  // ── Language Detection on Incoming Message ─────────────────────────────────
   const detectedLangResult = await detectLanguage(
     transcript,
     vendorDefaultLang,
@@ -499,27 +486,24 @@ export async function POST(req: Request) {
     geminiModel
   );
 
-  // respLang is the language used for ALL downstream processing (Gemini + TTS)
-  const respLang: TtsLanguage = detectedLangResult.lang;
-
+  const detectedInputLang: TtsLanguage = detectedLangResult.lang;
   const { devanagari, kannada, latin, total } = countScriptChars(transcript);
+
   console.log(
-    `[Stage 3: Language Detection] Transcript: "${transcript.slice(0, 60)}" | ` +
-    `Script chars — Devanagari:${devanagari} Kannada:${kannada} Latin:${latin} Total:${total} | ` +
-    `Detected: ${respLang} (${detectedLangResult.confidence} confidence via ${detectedLangResult.method}) | ` +
-    `VendorDefault: ${vendorDefaultLang} | TranscriptSource: ${transcriptSource}`
+    `[Stage 3: Language Detection] Type: ${msgType} | Transcript: "${transcript.slice(0, 60)}" | ` +
+    `ScriptChars: Dev:${devanagari} Kn:${kannada} Lat:${latin} Total:${total} | ` +
+    `Detected: ${detectedInputLang} (${detectedLangResult.confidence} via ${detectedLangResult.method}) | ` +
+    `VendorDefault: ${vendorDefaultLang}`
   );
 
-  // ── Stage 4: Gemini Response in Detected Language ─────────────────────────
-  const langName = respLang === "kn" ? "Kannada (ಕನ್ನಡ)" : respLang === "hi" ? "Hindi (हिन्दी)" : "Indian English";
-
+  // ── Stage 4: Gemini AI Response in Detected Language ───────────────────────
   let replyText = getIntelligentFallback(
     vendor.vendorName,
     vendor.stallName,
     produceList,
     stallTempReading,
     stallHumidReading,
-    respLang
+    detectedInputLang
   );
 
   if (geminiKey) {
@@ -531,7 +515,7 @@ export async function POST(req: Request) {
     ].filter(Boolean) as string[];
 
     const prompt = buildGeminiPrompt(
-      respLang,
+      detectedInputLang,
       vendor.vendorName,
       vendor.stallName,
       produceList,
@@ -554,38 +538,42 @@ export async function POST(req: Request) {
         const generated = aiResponse.text?.trim();
         if (generated && generated.length > 15) {
           replyText = generated;
-          console.log(
-            `[Stage 4: AI Response] Gemini (${model}) | ResponseLang: ${langName} | TTS locale: ${respLang === "hi" ? "hi-IN" : respLang === "kn" ? "kn-IN" : "en-IN"} | Preview: "${replyText.slice(0, 60)}"`
-          );
           break;
         }
       } catch (mErr) {
         console.warn(`[Stage 4: AI Response] Model ${model} failed:`, mErr);
       }
     }
-  } else {
-    console.log(`[Stage 4: AI Response] No GEMINI_API_KEY — using evidence-based ${langName} fallback.`);
   }
 
-  // ── Stage 5: TTS in Detected Language ─────────────────────────────────────
-  //
-  // respLang (not vendor.preferredLanguage) drives TTS locale selection.
-  // Hindi input → hi-IN TTS.  Kannada input → kn-IN TTS.  English → en-IN TTS.
-  //
+  // ── Stage 5: Response Script Verification & TTS Locale Mapping ────────────
+  // Requirement 8: Audio generation strictly matches the language of the AI response text.
+  // If replyText has Devanagari -> Hindi (hi-IN). If Kannada -> Kannada (kn-IN). If Latin -> English (en-IN).
+  const detectedResponseLang = detectScriptFromText(replyText);
+  const responseLang: TtsLanguage = detectedResponseLang ?? detectedInputLang;
+  const ttsLocale = responseLang === "hi" ? "hi-IN" : responseLang === "kn" ? "kn-IN" : "en-IN";
+
+  // Requirement 9: Structured diagnostic log
+  console.log(
+    `[Stage 4-5 Diagnostics] IncomingType: ${msgType} | IncomingText: "${transcript.slice(0, 50)}" | ` +
+    `DetectedInputLang: ${detectedInputLang} | GeminiResponseLang: ${responseLang} | TTSLocale: ${ttsLocale} | ` +
+    `ReplyPreview: "${replyText.slice(0, 60)}"`
+  );
+
   let audioUrl: string | undefined;
   const replyAlertId = `webhook-${Date.now()}`;
 
   try {
-    const audioBuffer = await synthesise(replyText, respLang);
+    const audioBuffer = await synthesise(replyText, responseLang);
     if (audioBuffer && audioBuffer.length > 0) {
       audioStore.set(replyAlertId, audioBuffer);
       globalAudioStore.set(replyAlertId, audioBuffer);
 
-      const token = buildAudioToken(replyAlertId, replyText, respLang);
+      const token = buildAudioToken(replyAlertId, replyText, responseLang);
       audioUrl = `${publicBaseUrl}/api/voice/audio/${token}`;
 
       console.log(
-        `[Stage 5: TTS] Synthesised ${audioBuffer.length} bytes | Locale: ${respLang === "hi" ? "hi-IN" : respLang === "kn" ? "kn-IN" : "en-IN"} | URL: ${audioUrl}`
+        `[Stage 5: TTS] Audio synthesised (${audioBuffer.length} bytes, locale: ${ttsLocale}). URL: ${audioUrl}`
       );
     } else {
       console.warn("[Stage 5: TTS] Synthesis returned empty buffer.");
@@ -601,9 +589,10 @@ export async function POST(req: Request) {
     const client = twilio(sid, authToken);
     const toWa = from.startsWith("whatsapp:") ? from : `whatsapp:${from}`;
 
+    // Attempt 1: Deliver voice/audio message if audioUrl is public
     if (audioUrl && isPublicUrl) {
       try {
-        console.log(`[Stage 6: Twilio Dispatch] Attempting audio delivery | Lang: ${respLang} | URL: ${audioUrl}`);
+        console.log(`[Stage 6: Twilio Dispatch] Delivering audio reply | Locale: ${ttsLocale} | To: ${toWa}`);
         const out = await client.messages.create({
           from: waFrom,
           to: toWa,
@@ -612,16 +601,17 @@ export async function POST(req: Request) {
         });
         deliveryStatus = `delivered_audio (SID: ${out.sid})`;
         console.log(
-          `[Stage 6: Twilio Dispatch] Audio delivered! SID: ${out.sid} | Status: ${out.status} | Duration: ${Date.now() - startTime}ms`
+          `[Stage 6: Twilio Dispatch] WhatsApp Audio Delivered! SID: ${out.sid} | Status: ${out.status} | TotalDuration: ${Date.now() - startTime}ms`
         );
       } catch (audioErr) {
         console.warn("[Stage 6: Twilio Dispatch] Audio delivery failed, falling back to text:", audioErr);
       }
     }
 
+    // Attempt 2: Text fallback if audio delivery failed or URL is local
     if (!deliveryStatus.startsWith("delivered_audio")) {
       try {
-        console.log(`[Stage 6: Twilio Dispatch] Sending text reply | Lang: ${respLang} | To: ${toWa}`);
+        console.log(`[Stage 6: Twilio Dispatch] Delivering text reply | Locale: ${ttsLocale} | To: ${toWa}`);
         const textOut = await client.messages.create({
           from: waFrom,
           to: toWa,
@@ -629,7 +619,7 @@ export async function POST(req: Request) {
         });
         deliveryStatus = `delivered_text (SID: ${textOut.sid})`;
         console.log(
-          `[Stage 6: Twilio Dispatch] Text delivered! SID: ${textOut.sid} | Duration: ${Date.now() - startTime}ms`
+          `[Stage 6: Twilio Dispatch] WhatsApp Text Delivered! SID: ${textOut.sid} | TotalDuration: ${Date.now() - startTime}ms`
         );
       } catch (textErr) {
         deliveryStatus = "failed";
@@ -648,8 +638,10 @@ export async function POST(req: Request) {
       ok: true,
       stage: "completed",
       delivery: deliveryStatus,
-      detectedLang: respLang,
-      detectionMethod: detectedLangResult.method,
+      incomingType: msgType,
+      detectedLang: detectedInputLang,
+      responseLang: responseLang,
+      ttsLocale: ttsLocale,
       durationMs: Date.now() - startTime,
     }),
     { status: 200, headers: { "Content-Type": "application/json" } }

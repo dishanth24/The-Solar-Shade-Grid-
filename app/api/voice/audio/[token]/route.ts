@@ -9,7 +9,7 @@
  *  3. Returns standard 200 OK with audio/mpeg headers for Twilio WhatsApp voice delivery.
  */
 
-import { verifyAudioToken, synthesise, globalAudioStore } from "@/lib/tts-service";
+import { verifyAudioToken, synthesise, globalAudioStore, detectScriptFromText } from "@/lib/tts-service";
 
 export async function GET(
   _req: Request,
@@ -29,9 +29,11 @@ export async function GET(
   let buffer = globalAudioStore.get(alertId);
 
   // 2. Multi-instance serverless resilience: if not in memory, re-synthesize
+  // Explicitly uses script detection from the text payload to avoid defaulting to Kannada.
   if (!buffer && text) {
-    console.log(`[Voice Audio Route] Audio not in memory for ${alertId}, synthesizing on demand...`);
-    const synthesized = await synthesise(text, lang ?? "kn");
+    const effectiveLang = detectScriptFromText(text) ?? lang ?? "hi";
+    console.log(`[Voice Audio Route] Audio not in memory for ${alertId}, synthesizing on demand with locale ${effectiveLang}...`);
+    const synthesized = await synthesise(text, effectiveLang);
     if (synthesized) {
       buffer = synthesized;
       globalAudioStore.set(alertId, buffer);
@@ -40,7 +42,7 @@ export async function GET(
 
   if (!buffer) {
     // If still no buffer, synthesize a fallback audio frame so Twilio never gets 404
-    const fallback = await synthesise("", lang ?? "kn");
+    const fallback = await synthesise("", lang ?? "hi");
     if (fallback) {
       buffer = fallback;
     } else {
