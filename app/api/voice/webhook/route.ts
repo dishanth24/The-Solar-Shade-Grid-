@@ -21,7 +21,8 @@ import {
 } from "@/lib/tts-service";
 import type { TtsLanguage } from "@/lib/tts-service";
 import { audioStore } from "@/app/api/voice/alert/route";
-import { simulateSensors, assessFreshness } from "@/lib/produce-engine";
+import { simulateSensors, assessFreshness, PRODUCE_PROFILES } from "@/lib/produce-engine";
+import type { ProduceCategory } from "@/lib/produce-engine";
 
 // ── Helpers ────────────────────────────────────────────────────────────────────
 
@@ -240,70 +241,137 @@ function getIntelligentFallback(
   return `Hello ${vendorName}, the Solar Shade Grid reports your stall temperature is ${stallTemp.toFixed(1)}°C with ${stallHumid.toFixed(0)}% humidity. The solar canopy is providing clean power and cooling shade. Keep your ${produce} in ventilated shade to maintain freshness.`;
 }
 
-// ── Language-Specific Prompt Builders ─────────────────────────────────────────
+// ── Produce Detection from Transcript ─────────────────────────────────────────
 
-function buildGeminiPrompt(
+function detectProduceFromText(text: string): ProduceCategory | null {
+  const lower = text.toLowerCase();
+
+  const tomatoTerms = [
+    "tomato", "टमाटर", "ಟೊಮೇಟೊ", "tamatar", "tamaatar",
+  ];
+  const appleTerms = [
+    "apple", "सेब", "ಸೇಬು", "seb",
+  ];
+  const potatoTerms = [
+    "potato", "आलू", "ಆಲೂಗಡ್ಡೆ", "aloo", "aalu", "ಆಲೂ",
+  ];
+  const leafyTerms = [
+    "leafy", "greens", "spinach", "palak", "methi", "sabzi", "sabji",
+    "पत्तेदार", "सब्जी", "पालक", "ಸೊಪ್ಪು", "ತರಕಾರಿ", "ಹಸಿರು",
+  ];
+
+  if (tomatoTerms.some((t) => lower.includes(t))) return "tomato";
+  if (appleTerms.some((t) => lower.includes(t))) return "apple";
+  if (potatoTerms.some((t) => lower.includes(t))) return "potato";
+  if (leafyTerms.some((t) => lower.includes(t))) return "leafy";
+  return null;
+}
+
+// ── Conversational Prompt Builder ──────────────────────────────────────────────
+
+interface AllProduceContext {
+  allAssessments: Array<{
+    category: ProduceCategory;
+    stallId: string;
+    riskLevel: string;
+    summary: string;
+    recommendation: string;
+    temp: number;
+    humid: number;
+  }>;
+  stallTemps: Record<string, number>;
+  canopySolar: number;
+  windMs: number;
+  ambientTemp: number;
+  illuminanceLux: number;
+  rainfallMm: number;
+}
+
+function buildConversationalPrompt(
   lang: TtsLanguage,
   vendorName: string,
   stallName: string,
   produceList: string,
-  stallTempReading: number,
-  stallHumidReading: number,
-  contactTempReading: number,
-  canopySolar: number,
-  assessment: { riskLevel: string; summary: string; recommendations: string[] },
+  ctx: AllProduceContext,
+  detectedProduce: ProduceCategory | null,
   transcript: string
 ): string {
-  const sensorBlock = `EVIDENCE-BASED SENSOR READINGS (Strictly adhere to these actual readings, never invent other numbers):
-- Stall Air Temperature: ${stallTempReading.toFixed(1)}°C
-- Stall Relative Humidity: ${stallHumidReading.toFixed(0)}%
-- Produce Surface Contact Temperature: ${contactTempReading.toFixed(1)}°C
-- Solar Canopy Radiation: ${canopySolar} W/m² (Generating clean power & cooling shade)
-- Freshness Assessment: ${assessment.riskLevel} (${assessment.summary})
-- Agricultural Recommendation: ${assessment.recommendations[0] ?? "Keep produce in ventilated shade under solar canopy"}`;
+  const ts = new Date().toLocaleTimeString("en-IN", { hour: "2-digit", minute: "2-digit", hour12: true });
+  const estimatedKwh = ((ctx.canopySolar / 1000) * 6 * 0.78).toFixed(1); // ~6 panel hours × 78% efficiency
+  const gridMode = ctx.canopySolar > 100 ? "ACTIVE — Solar generating" : "LOW SOLAR — Battery mode";
 
-  if (lang === "hi") {
-    return `You are ARIA, the intelligent voice advisor for the Solar Shade Grid market in Bengaluru.
-You are replying directly to vendor ${vendorName} at ${stallName} (Produce: ${produceList}).
+  // Build per-produce status block
+  const produceStatusLines = ctx.allAssessments.map((a) => {
+    const profile = PRODUCE_PROFILES[a.category];
+    return `  • ${profile.displayName} ${profile.emoji} (${profile.stallName}, ${a.stallId.toUpperCase()}): Risk=${a.riskLevel}, Temp=${a.temp.toFixed(1)}°C, Humidity=${a.humid.toFixed(0)}% — ${a.summary}. Action: ${a.recommendation}`;
+  }).join("\n");
 
-${sensorBlock}
+  // Stall temperature summary (all 8 stalls)
+  const stallTempLines = Object.entries(ctx.stallTemps)
+    .map(([sid, t]) => `${sid.toUpperCase()}=${t.toFixed(1)}°C`)
+    .join(", ");
 
-MANDATORY LANGUAGE & SCRIPT RULES:
-1. You MUST write your response entirely in pure Devanagari Hindi script (देवनागरी लिपि).
-2. NEVER output English alphabet letters (A-Z) or Romanized Hindi (Hinglish).
-3. Begin with "नमस्ते ${vendorName} जी".
-4. State the stall temperature (${stallTempReading.toFixed(1)} डिग्री सेल्सियस) and give the actionable recommendation in 2 to 3 spoken sentences.
+  // Highlighted produce for vendor's question
+  const focusProduce = detectedProduce ?? null;
+  const focusAssessment = focusProduce
+    ? ctx.allAssessments.find((a) => a.category === focusProduce)
+    : ctx.allAssessments.find((a) =>
+        produceList.includes(a.category)
+      );
 
-Vendor message: "${transcript}"`;
-  }
+  const focusBlock = focusAssessment
+    ? `PRIMARY FOCUS (${PRODUCE_PROFILES[focusProduce ?? focusAssessment.category].displayName}): Risk=${focusAssessment.riskLevel}, Temp=${focusAssessment.temp.toFixed(1)}°C, Humidity=${focusAssessment.humid.toFixed(0)}%, ${focusAssessment.summary}. Recommendation: ${focusAssessment.recommendation}`
+    : "No specific produce detected — answer generally using all available data.";
 
-  if (lang === "kn") {
-    return `You are ARIA, the intelligent voice advisor for the Solar Shade Grid market in Bengaluru.
-You are replying directly to vendor ${vendorName} at ${stallName} (Produce: ${produceList}).
+  const sensorContext = `SOLAR SHADE GRID — LIVE SIMULATION DATA (as of ${ts}):
+Solar Canopy Radiation: ${ctx.canopySolar} W/m² | Grid Mode: ${gridMode}
+Estimated Daily Solar Generation: ~${estimatedKwh} kWh (simulated)
+Ambient Temperature: ${ctx.ambientTemp.toFixed(1)}°C | Wind: ${ctx.windMs.toFixed(1)} m/s | Illuminance: ${Math.round(ctx.illuminanceLux).toLocaleString()} lux | Rainfall: ${ctx.rainfallMm.toFixed(1)} mm/hr
+All Stall Temperatures: ${stallTempLines}
 
-${sensorBlock}
+ALL PRODUCE STATUS:
+${produceStatusLines}
 
-MANDATORY LANGUAGE & SCRIPT RULES:
-1. You MUST write your response entirely in pure Kannada script (ಕನ್ನಡ ಲಿಪಿ).
-2. NEVER output English alphabet letters (A-Z) or Romanized Kannada (Kanglish).
-3. Begin with "ನಮಸ್ಕಾರ ${vendorName} ಅವರೇ".
-4. State the stall temperature (${stallTempReading.toFixed(1)} ಡಿಗ್ರಿ ಸೆಲ್ಸಿಯಸ್) and give the actionable recommendation in 2 to 3 spoken sentences.
+${focusBlock}
 
-Vendor message: "${transcript}"`;
-  }
+VENDOR: ${vendorName} at ${stallName} (Registered produce: ${produceList})`;
 
-  // English
-  return `You are ARIA, the intelligent voice advisor for the Solar Shade Grid market in Bengaluru.
-You are replying directly to vendor ${vendorName} at ${stallName} (Produce: ${produceList}).
-
-${sensorBlock}
-
-MANDATORY LANGUAGE RULES:
-1. Respond in 2 to 3 concise spoken sentences in clear Indian English.
+  const scriptRules: Record<TtsLanguage, string> = {
+    hi: `MANDATORY LANGUAGE & SCRIPT RULES:
+1. Respond ENTIRELY in pure Devanagari Hindi script (देवनागरी लिपि). NO English letters (A–Z). NO Romanized Hindi.
+2. Begin with "नमस्ते ${vendorName} जी" (use their name as-is).
+3. Be conversational, warm, and concise — 2 to 4 spoken sentences.
+4. Answer the vendor's actual question using the data above. DO NOT give only a freshness alert if they asked about solar energy, storage tips, battery, or general advice.
+5. If the answer involves numbers (temperature, humidity, kWh), include them naturally in the sentence.
+6. If data for what they asked is unavailable, say so honestly in Hindi.`,
+    kn: `MANDATORY LANGUAGE & SCRIPT RULES:
+1. Respond ENTIRELY in pure Kannada script (ಕನ್ನಡ ಲಿಪಿ). NO English letters (A–Z). NO Romanized Kannada.
+2. Begin with "ನಮಸ್ಕಾರ ${vendorName} ಅವರೇ" (use their name as-is).
+3. Be conversational, warm, and concise — 2 to 4 spoken sentences.
+4. Answer the vendor's actual question using the data above. DO NOT give only a freshness alert if they asked about solar energy, storage tips, battery, or general advice.
+5. If the answer involves numbers (temperature, humidity, kWh), include them naturally in the sentence.
+6. If data for what they asked is unavailable, say so honestly in Kannada.`,
+    en: `MANDATORY LANGUAGE RULES:
+1. Respond in clear, warm Indian English — 2 to 4 spoken sentences.
 2. Begin with "Hello ${vendorName}".
-3. State the stall temperature (${stallTempReading.toFixed(1)}°C) and provide the actionable recommendation to protect the produce.
+3. Answer the vendor's actual question using the data above. DO NOT give only a freshness alert if they asked about solar energy, storage, battery, or general advice.
+4. Include relevant numbers (temperature, humidity, kWh) naturally in the sentence.
+5. If data for what they asked is unavailable, say so honestly.`,
+  };
 
-Vendor message: "${transcript}"`;
+  return `You are ARIA, the intelligent AI voice advisor for the Solar Shade Grid market in Bengaluru.
+You speak directly to vendors via WhatsApp and answer ANY question they have — freshness, storage, solar energy, battery status, stall conditions, weather, or general agricultural advice.
+
+${sensorContext}
+
+IMPORTANT RULES:
+- All sensor readings above are SIMULATED for this demo. Never invent additional numbers.
+- If the vendor asks about something not in the data, say you don't have that information right now.
+- Answer the actual question — do not default to a generic freshness alert.
+
+${scriptRules[lang]}
+
+Vendor's message: "${transcript}"`;
 }
 
 // ── Webhook Handler ────────────────────────────────────────────────────────────
@@ -390,6 +458,25 @@ export async function POST(req: Request) {
     hsun: Math.max(0, Math.sin(((nowHour - 6) / 12) * Math.PI)),
   });
 
+  // Collect assessments for all 4 produce categories
+  const allProduceCategories: ProduceCategory[] = ["tomato", "apple", "potato", "leafy"];
+  const allAssessments = allProduceCategories.map((cat) => {
+    const profile = PRODUCE_PROFILES[cat];
+    const assessment = assessFreshness(cat, profile.stallId, sensors);
+    const temp = sensors.find((s) => s.sensor_type === "temperature_stall" && s.stall_id === profile.stallId)?.value ?? 28.2;
+    const humid = sensors.find((s) => s.sensor_type === "relative_humidity" && s.stall_id === profile.stallId)?.value ?? 64.0;
+    return {
+      category: cat,
+      stallId: profile.stallId,
+      riskLevel: assessment.riskLevel,
+      summary: assessment.summary,
+      recommendation: assessment.recommendations[0] ?? "Keep in shade",
+      temp,
+      humid,
+    };
+  });
+
+  // Vendor-specific stall readings (for fallback & logs)
   const assessment = assessFreshness(primaryCategory, vendor.stallId, sensors);
   const stallTempReading = sensors.find(
     (s) => s.sensor_type === "temperature_stall" && s.stall_id === vendor.stallId
@@ -403,6 +490,22 @@ export async function POST(req: Request) {
   const canopySolar = sensors.find(
     (s) => s.sensor_type === "solar_radiation_wm2" && s.stall_id === "canopy"
   )?.value ?? 650;
+  const windMs = sensors.find((s) => s.sensor_type === "wind_speed_ms" && s.stall_id === "canopy")?.value ?? 2.0;
+  const ambientTemp = sensors.find((s) => s.sensor_type === "temperature_ambient" && s.stall_id === "canopy")?.value ?? 32.5;
+  const illuminanceLux = sensors.find((s) => s.sensor_type === "illuminance_lux" && s.stall_id === "canopy")?.value ?? 0;
+  const rainfallMm = sensors.find((s) => s.sensor_type === "rainfall_intensity" && s.stall_id === "canopy")?.value ?? 0;
+
+  // Build stall temp map for all 8 stalls
+  const stallIds = ["s1", "s2", "s3", "s4", "s5", "s6", "s7", "s8"];
+  const stallTemps: Record<string, number> = {};
+  for (const sid of stallIds) {
+    stallTemps[sid] = sensors.find((s) => s.sensor_type === "temperature_stall" && s.stall_id === sid)?.value ?? 28.0;
+  }
+
+  console.log(
+    `[Stage 2: Vendor & Sensors] Vendor: ${vendor.vendorName} (${matchReason}) | ` +
+    `Solar: ${canopySolar} W/m² | StallTemp: ${stallTempReading.toFixed(1)}°C | AllAssessments: ${allAssessments.map((a) => `${a.category}=${a.riskLevel}`).join(", ")}`
+  );
 
   // ── Stage 3: Transcription (if voice note) & Language Detection ───────────
   let transcript = bodyText;
@@ -514,17 +617,32 @@ Do NOT translate into English. Do NOT add commentary. Return only the raw spoken
       "gemini-1.5-flash",
     ].filter(Boolean) as string[];
 
-    const prompt = buildGeminiPrompt(
+    // Detect produce from the transcript for focused context
+    const detectedProduce = detectProduceFromText(transcript);
+
+    // Build full conversational prompt with all sensor data
+    const allProduceCtx: AllProduceContext = {
+      allAssessments,
+      stallTemps,
+      canopySolar,
+      windMs,
+      ambientTemp,
+      illuminanceLux,
+      rainfallMm,
+    };
+
+    const prompt = buildConversationalPrompt(
       detectedInputLang,
       vendor.vendorName,
       vendor.stallName,
       produceList,
-      stallTempReading,
-      stallHumidReading,
-      contactTempReading,
-      canopySolar,
-      assessment,
+      allProduceCtx,
+      detectedProduce,
       transcript
+    );
+
+    console.log(
+      `[Stage 4: AI Prompt] Lang: ${detectedInputLang} | DetectedProduce: ${detectedProduce ?? "general"} | TranscriptLen: ${transcript.length} | PromptLen: ${prompt.length}`
     );
 
     for (const model of candidateModels) {
@@ -538,6 +656,9 @@ Do NOT translate into English. Do NOT add commentary. Return only the raw spoken
         const generated = aiResponse.text?.trim();
         if (generated && generated.length > 15) {
           replyText = generated;
+          console.log(
+            `[Stage 4: AI Response] Model: ${model} | Lang: ${detectedInputLang} | Produce: ${detectedProduce ?? "general"} | Preview: "${generated.slice(0, 80)}"`
+          );
           break;
         }
       } catch (mErr) {
