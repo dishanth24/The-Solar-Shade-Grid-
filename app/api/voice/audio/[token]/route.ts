@@ -2,16 +2,14 @@
  * app/api/voice/audio/[token]/route.ts
  * GET — Serves a temporary, HMAC-signed audio file (MP3).
  *
- * Token format: base64url(payload) . base64url(HMAC-SHA256)
- * Payload: { alertId: string, exp: number }
- *
- * Returns the MP3 with correct MIME type and cache headers.
- * Returns 401 if token is invalid or expired.
- * Returns 404 if audio buffer is not in the in-memory store.
+ * Resilience:
+ *  1. Checks in-memory globalAudioStore.
+ *  2. If missing (e.g. serverless cold start / multi-instance), re-synthesizes on demand
+ *     using the verified text & language from the HMAC-signed payload.
+ *  3. Returns standard 200 OK with audio/mpeg headers for Twilio WhatsApp voice delivery.
  */
 
-import { verifyAudioToken } from "@/lib/tts-service";
-import { audioStore } from "@/app/api/voice/alert/route";
+import { verifyAudioToken, synthesise, globalAudioStore } from "@/lib/tts-service";
 
 export async function GET(
   _req: Request,
@@ -19,14 +17,36 @@ export async function GET(
 ) {
   const { token } = await params;
 
-  const alertId = verifyAudioToken(token);
-  if (!alertId) {
+  const tokenData = verifyAudioToken(token);
+  if (!tokenData) {
+    console.warn("[Voice Audio Route] Unauthorized or expired audio token requested.");
     return new Response("Unauthorized: invalid or expired token", { status: 401 });
   }
 
-  const buffer = audioStore.get(alertId);
+  const { alertId, text, lang } = tokenData;
+
+  // 1. Check in-memory store
+  let buffer = globalAudioStore.get(alertId);
+
+  // 2. Multi-instance serverless resilience: if not in memory, re-synthesize
+  if (!buffer && text) {
+    console.log(`[Voice Audio Route] Audio not in memory for ${alertId}, synthesizing on demand...`);
+    const synthesized = await synthesise(text, lang ?? "kn");
+    if (synthesized) {
+      buffer = synthesized;
+      globalAudioStore.set(alertId, buffer);
+    }
+  }
+
   if (!buffer) {
-    return new Response("Not found: audio not available", { status: 404 });
+    // If still no buffer, synthesize a fallback audio frame so Twilio never gets 404
+    const fallback = await synthesise("", lang ?? "kn");
+    if (fallback) {
+      buffer = fallback;
+    } else {
+      console.error(`[Voice Audio Route] Audio not available for alertId ${alertId}`);
+      return new Response("Not found: audio not available", { status: 404 });
+    }
   }
 
   return new Response(new Uint8Array(buffer), {
@@ -34,8 +54,20 @@ export async function GET(
     headers: {
       "Content-Type": "audio/mpeg",
       "Content-Length": String(buffer.byteLength),
-      "Cache-Control": "private, max-age=3600",
-      "Content-Disposition": `inline; filename="alert-${alertId}.mp3"`,
+      "Accept-Ranges": "bytes",
+      "Cache-Control": "public, max-age=3600, s-maxage=3600",
+      "Content-Disposition": `inline; filename="voice-${alertId}.mp3"`,
     },
+  });
+}
+
+export async function HEAD(
+  req: Request,
+  context: { params: Promise<{ token: string }> }
+) {
+  const getResp = await GET(req, context);
+  return new Response(null, {
+    status: getResp.status,
+    headers: getResp.headers,
   });
 }

@@ -17,8 +17,6 @@ import { VoiceNotificationCenter } from "@/components/VoiceNotificationCenter";
 import { Tabs, TabsList, TabsTrigger, TabsContent } from "@/components/ui/tabs";
 import { useSim } from "@/lib/sim-context";
 import { AnimatedNumber } from "@/components/AnimatedNumber";
-import { InstallTab } from "@/components/InstallTab";
-import { LiveMathTab } from "@/components/LiveMathTab";
 import {
   Activity,
   ShieldCheck,

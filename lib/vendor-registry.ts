@@ -120,6 +120,43 @@ export function findVendor(
   );
 }
 
+/**
+ * Match an incoming phone number (e.g. from WhatsApp webhook) to a VendorProfile.
+ * Handles E.164, digits-only suffix matching, DEMO_PHONE environment matching,
+ * and graceful fallback to the primary demo vendor so AI conversations always have context.
+ */
+export function matchVendorByPhone(incomingPhone: string): {
+  vendor: VendorProfile;
+  matchReason: string;
+} {
+  const clean = incomingPhone.replace(/^whatsapp:/, "").trim();
+  const digits = clean.replace(/\D/g, "");
+  const last10 = digits.length >= 10 ? digits.slice(-10) : digits;
+
+  // 1. Direct match with vendor specific phone
+  for (const v of VENDOR_REGISTRY) {
+    const rawVPhone = v.phone.replace(/\D/g, "");
+    if (v.phone === clean || (last10 && rawVPhone.endsWith(last10))) {
+      return { vendor: v, matchReason: `Direct match: ${v.vendorId} (${v.vendorName})` };
+    }
+  }
+
+  // 2. Match DEMO_PHONE environment variable
+  const demoPhone = (process.env.DEMO_PHONE ?? "").replace(/\D/g, "");
+  if (demoPhone && last10 && demoPhone.endsWith(last10)) {
+    return {
+      vendor: VENDOR_REGISTRY[0],
+      matchReason: `Matched DEMO_PHONE (${process.env.DEMO_PHONE}): assigned to primary demo stall ${VENDOR_REGISTRY[0].stallName}`,
+    };
+  }
+
+  // 3. Fallback for WhatsApp Sandbox testers (e.g. hackathon evaluators / unknown numbers)
+  return {
+    vendor: VENDOR_REGISTRY[0],
+    matchReason: `Sandbox fallback for ${clean}: assigned to ${VENDOR_REGISTRY[0].vendorName} (${VENDOR_REGISTRY[0].stallName})`,
+  };
+}
+
 /** Lookup vendor by vendorId. */
 export function getVendorById(vendorId: string): VendorProfile | undefined {
   return VENDOR_REGISTRY.find((v) => v.vendorId === vendorId);

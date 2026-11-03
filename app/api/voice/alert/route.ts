@@ -33,7 +33,7 @@ import {
   buildSmsBody,
   getProduceName,
 } from "@/lib/i18n-alerts";
-import { synthesise, buildAudioToken } from "@/lib/tts-service";
+import { synthesise, buildAudioToken, globalAudioStore } from "@/lib/tts-service";
 import type { ProduceCategory, RiskLevel } from "@/lib/produce-engine";
 import type { TtsLanguage } from "@/lib/tts-service";
 
@@ -188,12 +188,13 @@ Start with "Hello ${vendor.vendorName}". Mention ${produceName} and current cond
   const audioBuffer = await synthesise(alertMessage, lang);
   if (audioBuffer) {
     audioStore.set(alert.alertId, audioBuffer);
+    globalAudioStore.set(alert.alertId, audioBuffer);
   }
 
   // ── Build audio URL (only if audio available) ──────────────────────────────
   let audioUrl: string | undefined;
   if (audioBuffer) {
-    const token = buildAudioToken(alert.alertId);
+    const token = buildAudioToken(alert.alertId, alertMessage, lang);
     const baseUrl = process.env.NEXT_PUBLIC_BASE_URL ?? "http://localhost:3000";
     audioUrl = `${baseUrl}/api/voice/audio/${token}`;
   }
