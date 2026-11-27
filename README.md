@@ -17,17 +17,7 @@
 
 </div>
 
----
-
-## 📸 Screenshots
-
-> Add your screenshots to a `docs/` folder and update the file names below.
-
-| Normal day | Heatwave (46 °C) | Blackout |
-|---|---|---|
-| ![Normal](docs/normal.png) | ![Heatwave](docs/heatwave.png) | ![Blackout](docs/blackout.png) |
-
----
+Link - https://the-solar-shade-grid.vercel.app/
 
 ## 🧭 The Problem
 
